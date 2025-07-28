@@ -1,4 +1,4 @@
-package org.globsframework.network;
+package org.globsframework.rpc.direct;
 
 import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 
@@ -11,6 +11,8 @@ public class Server {
         ExposedEndPoint remote = server.addEndPoint("localhost", 3000,
                 GlobTypeIndexResolver.from(DummyObject.TYPE), data -> {
             return data;
+//                    return data.duplicate()
+//                            .set(DummyObject.receivedAt, System.nanoTime());
         });
 
         System.in.read();

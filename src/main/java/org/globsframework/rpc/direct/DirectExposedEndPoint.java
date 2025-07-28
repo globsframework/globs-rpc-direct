@@ -1,4 +1,4 @@
-package org.globsframework.network;
+package org.globsframework.rpc.direct;
 
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.utils.serialization.*;
@@ -14,6 +14,8 @@ import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -27,6 +29,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
     private volatile boolean running = false;
     private final Receiver receiver;
     private final BinReaderFactory binReaderFactory;
+    private final List<MessageReader> messageReaders = new ArrayList<>();
 
     public DirectExposedEndPoint(String host, int port, GlobTypeIndexResolver globTypeResolver,
                                  Receiver receiver) {
@@ -62,6 +65,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
                 MessageReader messageReader =
                         new MessageReader(socket, binReaderFactory, binWriterFactory, receiver);
                 executorService.submit(messageReader::run);
+                messageReaders.add(messageReader);
             }
         } catch (IOException e) {
             final String msg = "Error processing connections";
@@ -74,6 +78,9 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
 
     public void shutdown() {
         running = false;
+        for (MessageReader messageReader : messageReaders) {
+            messageReader.shutdown();
+        }
     }
 
     static class MessageReader {
@@ -85,6 +92,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
         private final GlobsCache globsCache;
         private final SerializedInput serializationInput;
         private final SerializedOutput serializationOutput;
+        private volatile boolean shutdown = false;
 
         public MessageReader(Socket socket, BinReaderFactory binReader, BinWriterFactory binWriter, Receiver receiver) throws IOException {
             this.socket = socket;
@@ -101,7 +109,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
 
         void run() {
             try {
-                while (true) {
+                while (!shutdown) {
                     final long order = serializationInput.readNotNullLong();
                     Glob receivedMessage = globBinReader.read().orElse(null);
                     final Glob receive = this.receiver.receive(receivedMessage);
@@ -123,6 +131,15 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
                     log.error("Error closing socket", ex);
                 }
                 throw new RuntimeException(e);
+            }
+            log.info("Closing connection.");
+        }
+
+        public void shutdown() {
+            shutdown = true;
+            try {
+                socket.close();
+            } catch (IOException e) {
             }
         }
     }

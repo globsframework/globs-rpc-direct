@@ -3,8 +3,8 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.globsframework</groupId>
     <packaging>jar</packaging>
-    <artifactId>globs-network</artifactId>
-    <name>exchange globs</name>
+    <artifactId>globs-rpc-direct</artifactId>
+    <name>Glob simple RPC call using blocking socket</name>
     <version>4.2-SNAPSHOT</version>
 
     <repositories>

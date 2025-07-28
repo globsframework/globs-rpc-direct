@@ -1,4 +1,4 @@
-package org.globsframework.network;
+package org.globsframework.rpc.direct;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
@@ -23,12 +23,20 @@ class DummyObject {
     @FieldNumber_(2)
     public static final StringField name;
 
+    @FieldNumber_(3)
+    public static final LongField sendAt;
+
+    @FieldNumber_(4)
+    public static final LongField receivedAt;
+
     static {
         final GlobTypeBuilder dummyObject = DefaultGlobTypeBuilder.init("DummyObject",
                 List.of(GlobTypeNumber.create(1)));
         TYPE = dummyObject.unCompleteType();
         id = dummyObject.declareLongField("id", FieldNumber.create(1));
         name = dummyObject.declareStringField("name", FieldNumber.create(2));
+        sendAt = dummyObject.declareLongField("sendAt", FieldNumber.create(3));
+        receivedAt = dummyObject.declareLongField("receivedAt", FieldNumber.create(4));
         dummyObject.complete();
     }
 }

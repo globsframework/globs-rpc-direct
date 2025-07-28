@@ -1,4 +1,4 @@
-package org.globsframework.network;
+package org.globsframework.rpc.direct;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;

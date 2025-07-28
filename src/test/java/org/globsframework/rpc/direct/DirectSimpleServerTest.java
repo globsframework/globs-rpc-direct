@@ -1,10 +1,11 @@
-package org.globsframework.network;
+package org.globsframework.rpc.direct;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.codahale.metrics.UniformReservoir;
 import junit.framework.TestCase;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 import org.junit.Assert;
 
@@ -22,7 +23,7 @@ public class DirectSimpleServerTest extends TestCase {
             counter.incrementAndGet();
             return data;
         });
-        Glob query = DummyObject.TYPE.instantiate()
+        MutableGlob query = DummyObject.TYPE.instantiate()
                 .set(DummyObject.id, 1)
                 .set(DummyObject.name, "test");
         GlobClient client = new GlobClientProxy("localhost", 3000,
@@ -39,6 +40,7 @@ public class DirectSimpleServerTest extends TestCase {
         long endAt= 0;
         long tot = 0;
         while (startAt > (endAt = System.currentTimeMillis())) {
+            query.set(DummyObject.name, "test " + count);
             long start = System.nanoTime();
             response = client.request(query);
             long end = System.nanoTime();
@@ -49,7 +51,7 @@ public class DirectSimpleServerTest extends TestCase {
         }
 
         Assert.assertEquals(1, response.get(DummyObject.id, 0));
-        Assert.assertEquals("test", response.get(DummyObject.name));
+        Assert.assertEquals("test " + (count - 1), response.get(DummyObject.name));
 
         final Snapshot snapshot = histogram.getSnapshot();
         System.out.println("call per second " + count/30.);

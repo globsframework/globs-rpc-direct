@@ -1,4 +1,4 @@
-package org.globsframework.network;
+package org.globsframework.rpc.direct;
 
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.utils.serialization.DefaultSerializationInput;
@@ -57,7 +57,11 @@ public class DirectSimpleClient {
             serializedOutput.write(order);
             binWriter.write(data);
         }
-        bufferedOutputStream.flush();
+        bufferedOutputStream.flush(); //internally synchronized
+
+        // read response, we must read in the same order we do write.
+        // Thread sequence can change between lock in write, flush and read
+        // we keep write order to force read order.
         lock.lock();
         try {
             while (order != readOrder) {

@@ -1,4 +1,4 @@
-package org.globsframework.network;
+package org.globsframework.rpc.direct;
 
 import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 
