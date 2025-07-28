@@ -1,5 +1,6 @@
 package org.globsframework.rpc.direct;
 
+import org.globsframework.rpc.direct.impl.DirectSimpleServer;
 import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 
 import java.io.IOException;
@@ -9,7 +10,8 @@ public class Server {
         DirectSimpleServer server = new DirectSimpleServer();
 
         ExposedEndPoint remote = server.addEndPoint("localhost", 3000,
-                GlobTypeIndexResolver.from(DummyObject.TYPE), data -> {
+                GlobTypeIndexResolver.from(DummyObject.TYPE));
+        remote.addReceiver("/", data -> {
             return data;
 //                    return data.duplicate()
 //                            .set(DummyObject.receivedAt, System.nanoTime());

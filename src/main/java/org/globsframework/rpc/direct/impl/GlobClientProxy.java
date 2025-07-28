@@ -1,6 +1,7 @@
-package org.globsframework.rpc.direct;
+package org.globsframework.rpc.direct.impl;
 
 import org.globsframework.core.model.Glob;
+import org.globsframework.rpc.direct.GlobClient;
 import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 
 public class GlobClientProxy implements GlobClient {
@@ -15,14 +16,14 @@ public class GlobClientProxy implements GlobClient {
         this.globTypeResolver = globTypeResolver;
     }
 
-    public Glob request(Glob data) {
+    public Glob request(String path, Glob data) {
         try {
             synchronized (this) {
                 if (simpleClient == null) {
                     simpleClient = new DirectSimpleClient(host, port, globTypeResolver);
                 }
             }
-            return simpleClient.request(data);
+            return simpleClient.request(path, data);
         } catch (Exception e) {
             synchronized (this) {
                 simpleClient = null;

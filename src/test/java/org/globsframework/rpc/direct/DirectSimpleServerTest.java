@@ -6,6 +6,8 @@ import com.codahale.metrics.UniformReservoir;
 import junit.framework.TestCase;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.rpc.direct.impl.DirectSimpleServer;
+import org.globsframework.rpc.direct.impl.GlobClientProxy;
 import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 import org.junit.Assert;
 
@@ -19,7 +21,8 @@ public class DirectSimpleServerTest extends TestCase {
         DirectSimpleServer server = new DirectSimpleServer();
 
         AtomicInteger counter = new AtomicInteger();
-        ExposedEndPoint remote = server.addEndPoint("localhost", 3000, GlobTypeIndexResolver.from(DummyObject.TYPE), data -> {
+        ExposedEndPoint remote = server.addEndPoint("localhost", 3000, GlobTypeIndexResolver.from(DummyObject.TYPE));
+        remote.addReceiver("/", data -> {
             counter.incrementAndGet();
             return data;
         });
@@ -30,7 +33,7 @@ public class DirectSimpleServerTest extends TestCase {
                 GlobTypeIndexResolver.from(DummyObject.TYPE));
         Glob response = null;
         for (int i = 0; i < 1000; i++) {
-            response = client.request(query);
+            response = client.request("/", query);
         }
         Assert.assertEquals(1000, counter.get());
         Histogram histogram = new Histogram(new UniformReservoir());
@@ -42,7 +45,7 @@ public class DirectSimpleServerTest extends TestCase {
         while (startAt > (endAt = System.currentTimeMillis())) {
             query.set(DummyObject.name, "test " + count);
             long start = System.nanoTime();
-            response = client.request(query);
+            response = client.request("/", query);
             long end = System.nanoTime();
             final long micros = TimeUnit.NANOSECONDS.toMicros(end - start);
             tot += micros;

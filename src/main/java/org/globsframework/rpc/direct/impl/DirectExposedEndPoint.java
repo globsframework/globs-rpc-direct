@@ -1,7 +1,8 @@
-package org.globsframework.rpc.direct;
+package org.globsframework.rpc.direct.impl;
 
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.utils.serialization.*;
+import org.globsframework.rpc.direct.ExposedEndPoint;
 import org.globsframework.serialisation.BinReader;
 import org.globsframework.serialisation.BinReaderFactory;
 import org.globsframework.serialisation.BinWriter;
@@ -16,6 +17,8 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -27,15 +30,13 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
     private int port;
     private ServerSocket serverSocket;
     private volatile boolean running = false;
-    private final Receiver receiver;
+    private final Map<String, Receiver> receiver = new ConcurrentHashMap<>();
     private final BinReaderFactory binReaderFactory;
     private final List<MessageReader> messageReaders = new ArrayList<>();
 
-    public DirectExposedEndPoint(String host, int port, GlobTypeIndexResolver globTypeResolver,
-                                 Receiver receiver) {
+    public DirectExposedEndPoint(String host, int port, GlobTypeIndexResolver globTypeResolver) {
         this.host = host;
         this.port = port;
-        this.receiver = receiver;
         binReaderFactory = BinReaderFactory.create(globTypeResolver);
         binWriterFactory = BinWriterFactory.create();
         init();
@@ -56,6 +57,10 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
             log.error(msg, e);
             throw new RuntimeException(msg, e);
         }
+    }
+
+    public void addReceiver(String path, Receiver receiver) {
+        this.receiver.put(path, receiver);
     }
 
     private void processConnections() {
@@ -84,7 +89,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
     }
 
     static class MessageReader {
-        private final Receiver receiver;
+        private final Map<String, Receiver> receivers;
         private final Socket socket;
         private final BufferedOutputStream bufferedOutputStream;
         private final BinReader globBinReader;
@@ -94,11 +99,11 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
         private final SerializedOutput serializationOutput;
         private volatile boolean shutdown = false;
 
-        public MessageReader(Socket socket, BinReaderFactory binReader, BinWriterFactory binWriter, Receiver receiver) throws IOException {
+        public MessageReader(Socket socket, BinReaderFactory binReader, BinWriterFactory binWriter, Map<String, Receiver> receivers) throws IOException {
             this.socket = socket;
             InputStream inputStream = socket.getInputStream();
             OutputStream outputStream = socket.getOutputStream();
-            this.receiver = receiver;
+            this.receivers = receivers;
             serializationInput = new DefaultSerializationInput(new BufferedInputStream(inputStream));
             bufferedOutputStream = new BufferedOutputStream(outputStream);
             serializationOutput = new DefaultSerializationOutput(bufferedOutputStream);
@@ -111,8 +116,15 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
             try {
                 while (!shutdown) {
                     final long order = serializationInput.readNotNullLong();
+                    final String path = serializationInput.readUtf8String();
                     Glob receivedMessage = globBinReader.read().orElse(null);
-                    final Glob receive = this.receiver.receive(receivedMessage);
+                    final Receiver receiver = this.receivers.get(path);
+                    final Glob receive;
+                    if (receiver != null) {
+                        receive = receiver.receive(receivedMessage);
+                    }else {
+                        receive = null;
+                    }
                     serializationOutput.write(order);
                     globBinWriter.write(receive);
                     bufferedOutputStream.flush();

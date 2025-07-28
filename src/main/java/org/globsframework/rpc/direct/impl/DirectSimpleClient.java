@@ -1,4 +1,4 @@
-package org.globsframework.rpc.direct;
+package org.globsframework.rpc.direct.impl;
 
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.utils.serialization.DefaultSerializationInput;
@@ -50,11 +50,12 @@ public class DirectSimpleClient {
         binWriter = binWriterFactory.create(serializedOutput);
     }
 
-    public Glob request(Glob data) throws IOException {
+    public Glob request(String path, Glob data) throws IOException {
         long order;
         synchronized (binWriter) {
             order = writeOrder++;
             serializedOutput.write(order);
+            serializedOutput.writeUtf8String(path);
             binWriter.write(data);
         }
         bufferedOutputStream.flush(); //internally synchronized

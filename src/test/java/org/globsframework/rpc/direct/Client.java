@@ -5,6 +5,7 @@ import com.codahale.metrics.Snapshot;
 import com.codahale.metrics.UniformReservoir;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.rpc.direct.impl.GlobClientProxy;
 import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 import org.junit.Assert;
 
@@ -63,7 +64,7 @@ public class Client {
             Glob query = mutableGlob
                     .set(DummyObject.id, i)
                     .set(DummyObject.sendAt, System.nanoTime());
-            response = client.request(query);
+            response = client.request("/", query);
             Assert.assertEquals(i, response.get(DummyObject.id).intValue());
         }
 //        if (true) {
@@ -78,18 +79,18 @@ public class Client {
 //        }
         Histogram histogram = new Histogram(new UniformReservoir());
 
-        Wait wait = new Wait(10000);
+//        Wait wait = new Wait(10000);
         long startAt = System.currentTimeMillis();
         long tot = 0;
         long count = 0;
         while (startAt  + 30000 >  System.currentTimeMillis()) {
 //        while (count < 100000) {
-            wait.limitRate();
+//            wait.limitRate();
             long start = System.nanoTime();
             Glob query = mutableGlob.set(DummyObject.id, count)
 //                    .set(DummyObject.name, "Echo message #" + count);
                     .set(DummyObject.sendAt, start);
-            response = client.request(query);
+            response = client.request("/", query);
             Assert.assertEquals(count, response.get(DummyObject.id).intValue());
             long end = System.nanoTime();
             final long micros = TimeUnit.NANOSECONDS.toMicros(end - start);
