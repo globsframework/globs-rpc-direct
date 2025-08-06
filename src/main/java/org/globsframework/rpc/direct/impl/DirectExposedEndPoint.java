@@ -1,5 +1,6 @@
 package org.globsframework.rpc.direct.impl;
 
+import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.utils.serialization.*;
 import org.globsframework.rpc.direct.ExposedEndPoint;
@@ -7,7 +8,6 @@ import org.globsframework.serialisation.BinReader;
 import org.globsframework.serialisation.BinReaderFactory;
 import org.globsframework.serialisation.BinWriter;
 import org.globsframework.serialisation.BinWriterFactory;
-import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,14 +30,18 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
     private int port;
     private ServerSocket serverSocket;
     private volatile boolean running = false;
-    private final Map<String, Receiver> receiver = new ConcurrentHashMap<>();
+    private final Map<String, ReceivedWithType> receiver = new ConcurrentHashMap<>();
     private final BinReaderFactory binReaderFactory;
     private final List<MessageReader> messageReaders = new ArrayList<>();
 
-    public DirectExposedEndPoint(String host, int port, GlobTypeIndexResolver globTypeResolver) {
+    record ReceivedWithType(Receiver receiver, GlobType type) {
+
+    }
+
+    public DirectExposedEndPoint(String host, int port) {
         this.host = host;
         this.port = port;
-        binReaderFactory = BinReaderFactory.create(globTypeResolver);
+        binReaderFactory = BinReaderFactory.create();
         binWriterFactory = BinWriterFactory.create();
         init();
     }
@@ -59,8 +63,8 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
         }
     }
 
-    public void addReceiver(String path, Receiver receiver) {
-        this.receiver.put(path, receiver);
+    public void addReceiver(String path, Receiver receiver, GlobType receivedType) {
+        this.receiver.put(path, new ReceivedWithType(receiver, receivedType));
     }
 
     private void processConnections() {
@@ -89,7 +93,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
     }
 
     static class MessageReader {
-        private final Map<String, Receiver> receivers;
+        private final Map<String, ReceivedWithType> receivers;
         private final Socket socket;
         private final BufferedOutputStream bufferedOutputStream;
         private final BinReader globBinReader;
@@ -99,7 +103,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
         private final SerializedOutput serializationOutput;
         private volatile boolean shutdown = false;
 
-        public MessageReader(Socket socket, BinReaderFactory binReader, BinWriterFactory binWriter, Map<String, Receiver> receivers) throws IOException {
+        public MessageReader(Socket socket, BinReaderFactory binReader, BinWriterFactory binWriter, Map<String, ReceivedWithType> receivers) throws IOException {
             this.socket = socket;
             InputStream inputStream = socket.getInputStream();
             OutputStream outputStream = socket.getOutputStream();
@@ -117,11 +121,11 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
                 while (!shutdown) {
                     final long order = serializationInput.readNotNullLong();
                     final String path = serializationInput.readUtf8String();
-                    Glob receivedMessage = globBinReader.read().orElse(null);
-                    final Receiver receiver = this.receivers.get(path);
+                    final ReceivedWithType receiver = this.receivers.get(path);
+                    Glob receivedMessage = globBinReader.read(receiver.type).orElse(null);
                     final Glob receive;
                     if (receiver != null) {
-                        receive = receiver.receive(receivedMessage);
+                        receive = receiver.receiver.receive(receivedMessage);
                     }else {
                         receive = null;
                     }

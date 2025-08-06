@@ -6,7 +6,6 @@ import com.codahale.metrics.UniformReservoir;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.rpc.direct.impl.GlobClientProxy;
-import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 import org.junit.Assert;
 
 import java.io.IOException;
@@ -18,8 +17,7 @@ import java.util.concurrent.locks.LockSupport;
 public class Client {
     public static void main(String[] args) throws IOException, InterruptedException {
 
-        GlobClient client = new GlobClientProxy("localhost", 3000,
-                GlobTypeIndexResolver.from(DummyObject.TYPE));
+        GlobClient client = new GlobClientProxy("localhost", 3000);
 
         ExecutorService executor = Executors.newFixedThreadPool(10);
         executor.execute(() -> loop(client));
@@ -64,7 +62,7 @@ public class Client {
             Glob query = mutableGlob
                     .set(DummyObject.id, i)
                     .set(DummyObject.sendAt, System.nanoTime());
-            response = client.request("/", query);
+            response = client.request("/", query, DummyObject.TYPE);
             Assert.assertEquals(i, response.get(DummyObject.id).intValue());
         }
 //        if (true) {
@@ -90,7 +88,7 @@ public class Client {
             Glob query = mutableGlob.set(DummyObject.id, count)
 //                    .set(DummyObject.name, "Echo message #" + count);
                     .set(DummyObject.sendAt, start);
-            response = client.request("/", query);
+            response = client.request("/", query, DummyObject.TYPE);
             Assert.assertEquals(count, response.get(DummyObject.id).intValue());
             long end = System.nanoTime();
             final long micros = TimeUnit.NANOSECONDS.toMicros(end - start);

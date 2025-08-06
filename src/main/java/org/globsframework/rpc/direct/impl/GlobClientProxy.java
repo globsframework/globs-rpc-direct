@@ -1,29 +1,33 @@
 package org.globsframework.rpc.direct.impl;
 
+import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
 import org.globsframework.rpc.direct.GlobClient;
-import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
+
+import java.util.concurrent.TimeUnit;
 
 public class GlobClientProxy implements GlobClient {
     private final String host;
     private final int port;
-    private final GlobTypeIndexResolver globTypeResolver;
     private DirectSimpleClient simpleClient;
 
-    public GlobClientProxy(String host, int port, GlobTypeIndexResolver globTypeResolver) {
+    public GlobClientProxy(String host, int port) {
         this.host = host;
         this.port = port;
-        this.globTypeResolver = globTypeResolver;
     }
 
-    public Glob request(String path, Glob data) {
+    public Glob request(String path, Glob data, GlobType type) {
         try {
             synchronized (this) {
                 if (simpleClient == null) {
-                    simpleClient = new DirectSimpleClient(host, port, globTypeResolver);
+                    long connectStart = System.nanoTime();
+                    simpleClient = new DirectSimpleClient(host, port);
+                    long connectComplete = System.nanoTime();
+                    System.out.println("GlobClientProxy.request " +
+                                       TimeUnit.NANOSECONDS.toMicros(connectComplete - connectStart) + " µs");
                 }
             }
-            return simpleClient.request(path, data);
+            return simpleClient.request(path, data, type);
         } catch (Exception e) {
             synchronized (this) {
                 simpleClient = null;

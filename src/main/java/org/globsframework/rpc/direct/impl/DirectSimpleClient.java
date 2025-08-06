@@ -1,5 +1,6 @@
 package org.globsframework.rpc.direct.impl;
 
+import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.utils.serialization.DefaultSerializationInput;
 import org.globsframework.core.utils.serialization.DefaultSerializationOutput;
@@ -9,7 +10,6 @@ import org.globsframework.serialisation.BinReader;
 import org.globsframework.serialisation.BinReaderFactory;
 import org.globsframework.serialisation.BinWriter;
 import org.globsframework.serialisation.BinWriterFactory;
-import org.globsframework.serialisation.field.reader.GlobTypeIndexResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,12 +34,13 @@ public class DirectSimpleClient {
     private long writeOrder;
     private long readOrder;
 
-    public DirectSimpleClient(String host, int port, GlobTypeIndexResolver globTypeResolver) throws IOException {
+    public DirectSimpleClient(String host, int port) throws IOException {
         this.host = host;
         this.port = port;
-        BinReaderFactory binReaderFactory = BinReaderFactory.create(globTypeResolver);
+        BinReaderFactory binReaderFactory = BinReaderFactory.create();
         BinWriterFactory binWriterFactory = BinWriterFactory.create();
         socket = new Socket();
+        socket.setSoTimeout(10);
         socket.connect(new InetSocketAddress(host, port));
         final InputStream inputStream = socket.getInputStream();
         final OutputStream outputStream = socket.getOutputStream();
@@ -50,7 +51,7 @@ public class DirectSimpleClient {
         binWriter = binWriterFactory.create(serializedOutput);
     }
 
-    public Glob request(String path, Glob data) throws IOException {
+    public Glob request(String path, Glob data, GlobType type) throws IOException {
         long order;
         synchronized (binWriter) {
             order = writeOrder++;
@@ -77,7 +78,7 @@ public class DirectSimpleClient {
             if (readOrder != order) {
                 throw new RuntimeException("BUG : Read order " + readOrder + " != order " + order);
             }
-            return globBinReader.read().orElse(null);
+            return globBinReader.read(type).orElse(null);
         } finally {
             lock.unlock();
         }
