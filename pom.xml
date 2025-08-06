@@ -53,7 +53,7 @@
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs</artifactId>
-            <version>4.2-SNAPSHOT</version>
+            <version>4.2.0</version>
         </dependency>
         <dependency>
             <groupId>io.dropwizard.metrics</groupId>
@@ -63,7 +63,7 @@
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs-bin-serialisation</artifactId>
-            <version>4.3-SNAPSHOT</version>
+            <version>4.3.0</version>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
