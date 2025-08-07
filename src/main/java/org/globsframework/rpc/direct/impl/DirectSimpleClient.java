@@ -19,7 +19,7 @@ import java.net.Socket;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class DirectSimpleClient {
+public class DirectSimpleClient implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(DirectSimpleClient.class);
     private final String host;
     private final int port;
@@ -40,7 +40,6 @@ public class DirectSimpleClient {
         BinReaderFactory binReaderFactory = BinReaderFactory.create();
         BinWriterFactory binWriterFactory = BinWriterFactory.create();
         socket = new Socket();
-        socket.setSoTimeout(10);
         socket.connect(new InetSocketAddress(host, port));
         final InputStream inputStream = socket.getInputStream();
         final OutputStream outputStream = socket.getOutputStream();
@@ -82,5 +81,9 @@ public class DirectSimpleClient {
         } finally {
             lock.unlock();
         }
+    }
+
+    public void close() throws IOException {
+        socket.close();
     }
 }
