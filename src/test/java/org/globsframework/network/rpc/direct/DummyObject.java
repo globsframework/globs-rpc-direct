@@ -1,4 +1,4 @@
-package org.globsframework.rpc.direct;
+package org.globsframework.network.rpc.direct;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;

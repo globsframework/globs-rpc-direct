@@ -1,7 +1,7 @@
-package org.globsframework.rpc.direct.impl;
+package org.globsframework.network.rpc.direct.impl;
 
-import org.globsframework.rpc.direct.ExposedEndPoint;
-import org.globsframework.rpc.direct.GlobsServer;
+import org.globsframework.network.rpc.direct.ExposedEndPoint;
+import org.globsframework.network.rpc.direct.GlobsServer;
 
 import java.util.ArrayList;
 import java.util.List;

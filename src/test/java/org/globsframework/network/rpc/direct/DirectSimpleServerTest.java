@@ -1,4 +1,4 @@
-package org.globsframework.rpc.direct;
+package org.globsframework.network.rpc.direct;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
@@ -6,11 +6,12 @@ import com.codahale.metrics.UniformReservoir;
 import junit.framework.TestCase;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.rpc.direct.impl.DirectSimpleServer;
-import org.globsframework.rpc.direct.impl.GlobClientProxy;
+import org.globsframework.network.rpc.direct.impl.DirectSimpleServer;
+import org.globsframework.network.rpc.direct.impl.GlobClientProxy;
 import org.junit.Assert;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -21,9 +22,9 @@ public class DirectSimpleServerTest extends TestCase {
 
         AtomicInteger counter = new AtomicInteger();
         ExposedEndPoint remote = server.addEndPoint("localhost", 3000);
-        remote.addReceiver("/", data -> {
+        remote.addReceiver("/", (data, globInstantiator) -> {
             counter.incrementAndGet();
-            return data;
+            return CompletableFuture.completedFuture(data);
         }, DummyObject.TYPE);
         MutableGlob query = DummyObject.TYPE.instantiate()
                 .set(DummyObject.id, 1)
@@ -31,7 +32,7 @@ public class DirectSimpleServerTest extends TestCase {
         GlobClient client = new GlobClientProxy("localhost", 3000);
         Glob response = null;
         for (int i = 0; i < 1000; i++) {
-            response = client.request("/", query, DummyObject.TYPE);
+            response = client.request("/", query, DummyObject.TYPE).join();
         }
         Assert.assertEquals(1000, counter.get());
         Histogram histogram = new Histogram(new UniformReservoir());
@@ -43,7 +44,7 @@ public class DirectSimpleServerTest extends TestCase {
         while (startAt > (endAt = System.currentTimeMillis())) {
             query.set(DummyObject.name, "test " + count);
             long start = System.nanoTime();
-            response = client.request("/", query, DummyObject.TYPE);
+            response = client.request("/", query, DummyObject.TYPE).join();
             long end = System.nanoTime();
             final long micros = TimeUnit.NANOSECONDS.toMicros(end - start);
             tot += micros;

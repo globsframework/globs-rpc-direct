@@ -1,9 +1,10 @@
-package org.globsframework.rpc.direct.impl;
+package org.globsframework.network.rpc.direct.impl;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
-import org.globsframework.rpc.direct.GlobClient;
+import org.globsframework.network.rpc.direct.GlobClient;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 public class GlobClientProxy implements GlobClient {
@@ -16,7 +17,7 @@ public class GlobClientProxy implements GlobClient {
         this.port = port;
     }
 
-    public Glob request(String path, Glob data, GlobType type) {
+    public CompletableFuture<Glob> request(String path, Glob data, GlobType resultType) {
         try {
             synchronized (this) {
                 if (simpleClient == null) {
@@ -27,7 +28,7 @@ public class GlobClientProxy implements GlobClient {
                                        TimeUnit.NANOSECONDS.toMicros(connectComplete - connectStart) + " µs");
                 }
             }
-            return simpleClient.request(path, data, type);
+            return simpleClient.request(path, data, resultType);
         } catch (Exception e) {
             synchronized (this) {
                 simpleClient = null;

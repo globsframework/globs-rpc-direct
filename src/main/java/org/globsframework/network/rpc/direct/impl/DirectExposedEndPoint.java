@@ -1,9 +1,11 @@
-package org.globsframework.rpc.direct.impl;
+package org.globsframework.network.rpc.direct.impl;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.cache.DefaultGlobsCache;
+import org.globsframework.core.model.cache.GlobsCache;
 import org.globsframework.core.utils.serialization.*;
-import org.globsframework.rpc.direct.ExposedEndPoint;
+import org.globsframework.network.rpc.direct.ExposedEndPoint;
 import org.globsframework.serialisation.BinReader;
 import org.globsframework.serialisation.BinReaderFactory;
 import org.globsframework.serialisation.BinWriter;
@@ -18,14 +20,18 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.BiConsumer;
 
 public class DirectExposedEndPoint implements ExposedEndPoint {
     private static final Logger log = LoggerFactory.getLogger(DirectExposedEndPoint.class);
     private final BinWriterFactory binWriterFactory;
-    private final ExecutorService executorService = Executors.newCachedThreadPool();
+        private final ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
+//    private final ExecutorService executorService = Executors.newCachedThreadPool();
+    private final ExecutorService connectionExecutorService = Executors.newSingleThreadExecutor();
     private final String host;
     private int port;
     private ServerSocket serverSocket;
@@ -55,7 +61,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
                 port = serverSocket.getLocalPort();
             }
             running = true;
-            executorService.submit(this::processConnections);
+            connectionExecutorService.submit(this::processConnections);
         } catch (IOException e) {
             final String msg = "Failed to initialize server";
             log.error(msg, e);
@@ -95,12 +101,12 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
     static class MessageReader {
         private final Map<String, ReceivedWithType> receivers;
         private final Socket socket;
-        private final BufferedOutputStream bufferedOutputStream;
         private final BinReader globBinReader;
         private final BinWriter globBinWriter;
         private final GlobsCache globsCache;
         private final SerializedInput serializationInput;
-        private final SerializedOutput serializationOutput;
+        private final DefaultBufferedSerializationOutput serializationOutput;
+        private int requestId = 0;
         private volatile boolean shutdown = false;
 
         public MessageReader(Socket socket, BinReaderFactory binReader, BinWriterFactory binWriter, Map<String, ReceivedWithType> receivers) throws IOException {
@@ -109,35 +115,38 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
             OutputStream outputStream = socket.getOutputStream();
             this.receivers = receivers;
             serializationInput = new DefaultSerializationInput(new BufferedInputStream(inputStream));
-            bufferedOutputStream = new BufferedOutputStream(outputStream);
-            serializationOutput = new DefaultSerializationOutput(bufferedOutputStream);
-            globsCache = new GlobsCache();
-            globBinReader = binReader.createGlobBinReader(globsCache, serializationInput);
+            serializationOutput = new DefaultBufferedSerializationOutput(outputStream);
+            globsCache = new DefaultGlobsCache(100);
+            globBinReader = binReader.createGlobBinReader(globType -> globsCache.newGlob(globType, requestId), serializationInput);
             this.globBinWriter = binWriter.create(serializationOutput);
         }
 
         void run() {
             try {
                 while (!shutdown) {
+                    requestId++;
+                    if (requestId == Integer.MAX_VALUE) {
+                        requestId = 1;
+                    }
+                    int callRequestId = requestId;
                     final long order = serializationInput.readNotNullLong();
                     final String path = serializationInput.readUtf8String();
                     final ReceivedWithType receiver = this.receivers.get(path);
-                    Glob receivedMessage = globBinReader.read(receiver.type).orElse(null);
-                    final Glob receive;
-                    if (receiver != null) {
-                        receive = receiver.receiver.receive(receivedMessage);
-                    }else {
-                        receive = null;
+                    if (receiver == null) {
+                            log.warn("No receiver found for path {}", path);
+                            globBinReader.read(null); // read the buffer content
+                        synchronized (this) {
+                            serializationOutput.write(order);
+                            globBinWriter.write(((Glob) null));
+                            serializationOutput.flush();
+                        }
+                    } else {
+                        final Glob receivedMessage = globBinReader.read(receiver.type).orElse(null);
+                        // put GlobInstantiator in Scoped Value ??
+                        final CompletableFuture<Glob> receive = receiver.receiver.receive(receivedMessage,
+                                globType -> globsCache.newGlob(globType, callRequestId));
+                        receive.whenComplete(new ResponseHandler(order, receivedMessage, callRequestId));
                     }
-                    serializationOutput.write(order);
-                    globBinWriter.write(receive);
-                    bufferedOutputStream.flush();
-                    if (receivedMessage != null) {
-                        globsCache.release(receivedMessage);
-                    }
-//                    if (receive != null) {
-//                        globsCache.release(receive);
-//                    }
                 }
             } catch (Throwable e) {
                 log.error("Error reading of writing glob. Closing connection", e);
@@ -156,6 +165,41 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
             try {
                 socket.close();
             } catch (IOException e) {
+            }
+        }
+
+        private class ResponseHandler implements BiConsumer<Glob, Throwable> {
+            private final long order;
+            private final Glob receivedMessage;
+            private final int callRequestId;
+
+            public ResponseHandler(long order, Glob receivedMessage, int callRequestId) {
+                this.order = order;
+                this.receivedMessage = receivedMessage;
+                this.callRequestId = callRequestId;
+            }
+
+            @Override
+            public void accept(Glob glob, Throwable throwable) {
+                synchronized (MessageReader.this) {
+                    try {
+                        if (throwable != null || glob == null) {
+                            serializationOutput.write(order);
+                            globBinWriter.write(((Glob) null));
+                            serializationOutput.flush();
+                        } else {
+                            serializationOutput.write(order);
+                            globBinWriter.write(glob);
+                            serializationOutput.flush();
+                            if (receivedMessage != null) {
+                                globsCache.release(receivedMessage, callRequestId);
+                            }
+                            globsCache.release(glob, callRequestId);
+                        }
+                    } catch (Exception e) {
+                        // ignored : the input is closed so will already leave the loop
+                    }
+                }
             }
         }
     }

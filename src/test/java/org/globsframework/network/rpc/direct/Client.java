@@ -1,14 +1,15 @@
-package org.globsframework.rpc.direct;
+package org.globsframework.network.rpc.direct;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.codahale.metrics.UniformReservoir;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.rpc.direct.impl.GlobClientProxy;
+import org.globsframework.network.rpc.direct.impl.GlobClientProxy;
 import org.junit.Assert;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -21,8 +22,8 @@ public class Client {
 
         ExecutorService executor = Executors.newFixedThreadPool(10);
         executor.execute(() -> loop(client));
-//        executor.execute(() -> loop(client));
-//        executor.execute(() -> loop(client));
+        executor.execute(() -> loop(client));
+        executor.execute(() -> loop(client));
         executor.shutdown();
         executor.awaitTermination(40, TimeUnit.SECONDS);
     }
@@ -56,14 +57,14 @@ public class Client {
     }
 
     private static void loop(GlobClient client) {
-        Glob response = null;
+        CompletableFuture<Glob> response = null;
         final MutableGlob mutableGlob = DummyObject.TYPE.instantiate();
         for (int i = 0; i < 10000; i++) {
             Glob query = mutableGlob
                     .set(DummyObject.id, i)
                     .set(DummyObject.sendAt, System.nanoTime());
-            response = client.request("/", query, DummyObject.TYPE);
-            Assert.assertEquals(i, response.get(DummyObject.id).intValue());
+             response = client.request("/", query, DummyObject.TYPE);
+            Assert.assertEquals(i, response.join().get(DummyObject.id).intValue());
         }
 //        if (true) {
 //            return;
@@ -89,7 +90,7 @@ public class Client {
 //                    .set(DummyObject.name, "Echo message #" + count);
                     .set(DummyObject.sendAt, start);
             response = client.request("/", query, DummyObject.TYPE);
-            Assert.assertEquals(count, response.get(DummyObject.id).intValue());
+            Assert.assertEquals(count, response.join().get(DummyObject.id).intValue());
             long end = System.nanoTime();
             final long micros = TimeUnit.NANOSECONDS.toMicros(end - start);
             tot += micros;

@@ -1,6 +1,6 @@
-package org.globsframework.rpc.direct;
+package org.globsframework.network.rpc.direct;
 
-import org.globsframework.rpc.direct.impl.DirectSimpleServer;
+import org.globsframework.network.rpc.direct.impl.DirectSimpleServer;
 
 public interface GlobsServer {
     ExposedEndPoint addEndPoint(String host, int port);
