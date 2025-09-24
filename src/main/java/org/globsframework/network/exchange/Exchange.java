@@ -1,14 +1,11 @@
 package org.globsframework.network.exchange;
 
-import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
 
+import java.util.concurrent.CompletableFuture;
+
 public interface Exchange {
-    void send(String path, Glob data);
+    CompletableFuture<Boolean> send(Glob data); // synchronous send. CompletableFuture to handle ack
 
-    void addReceiver(String path, Receiver receiver, GlobType receivedType);
-
-    interface Receiver {
-        void receive(Glob data);
-    }
+    void close();
 }

@@ -1,13 +1,13 @@
 package org.globsframework.network.rpc.direct;
 
-import org.globsframework.network.rpc.direct.impl.DirectSimpleServer;
+import org.globsframework.network.rpc.direct.impl.AsyncSimpleServer;
 
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
 public class Server {
     public static void main(String[] args) throws IOException {
-        DirectSimpleServer server = new DirectSimpleServer();
+        AsyncSimpleServer server = new AsyncSimpleServer();
 
         ExposedEndPoint remote = server.addEndPoint("localhost", 3000);
         remote.addReceiver("/", (data, globInstantiator) -> {

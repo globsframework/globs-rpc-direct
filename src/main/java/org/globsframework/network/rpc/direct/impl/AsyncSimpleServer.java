@@ -6,7 +6,7 @@ import org.globsframework.network.rpc.direct.GlobsServer;
 import java.util.ArrayList;
 import java.util.List;
 
-public class DirectSimpleServer implements GlobsServer {
+public class AsyncSimpleServer implements GlobsServer {
     private final List<DirectExposedEndPoint> endpoints = new ArrayList<>();
 
     public ExposedEndPoint addEndPoint(String host, int port) {

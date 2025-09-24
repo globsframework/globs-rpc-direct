@@ -1,4 +1,4 @@
-package org.globsframework.network.rpc.direct.impl;
+package org.globsframework.network.exchange.impl;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
@@ -24,42 +24,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
-/*
-virtual thread : jdk24
-call per second 25316.28882452811
-mean :  38 us.
-max : 12801
-min : 22
-average : 51.2568093385214
-99.9 : 12440.443000000045
-99 : 97.71000000000004
-98 : 74.0
-95 : 57.0
-  jdk 21
-  call per second 26918.974700399467
-mean :  36 us.
-max : 103
-min : 20
-average : 36.068093385214006
-99.9 : 102.971
-99 : 73.71000000000004
-98 : 68.41999999999996
-95 : 53.0
-
-thread natif jdk21 ;
-call per second 25538.482023968045
-mean :  38 us.
-max : 277
-min : 26
-average : 37.90758754863813
-99.9 : 273.7520000000004
-99 : 77.71000000000004
-98 : 68.0
-95 : 49.0
-
- */
-public class DirectSimpleClient implements AutoCloseable {
-    private static final Logger log = LoggerFactory.getLogger(DirectSimpleClient.class);
+public class ExchangeClient implements AutoCloseable {
+    private static final Logger log = LoggerFactory.getLogger(ExchangeClient.class);
     private final Map<Long, ResponseInfo> requests = new ConcurrentHashMap<>();
     private final String host;
     private final int port;
@@ -73,12 +39,13 @@ public class DirectSimpleClient implements AutoCloseable {
     private AtomicLong writeOrder = new AtomicLong(0);
     private volatile boolean shutdown;
 
-    public DirectSimpleClient(String host, int port) throws IOException {
+    public ExchangeClient(String host, int port) throws IOException {
         this.host = host;
         this.port = port;
         BinReaderFactory binReaderFactory = BinReaderFactory.create();
         BinWriterFactory binWriterFactory = BinWriterFactory.create();
         socket = new Socket();
+        socket.setTcpNoDelay(true);
         socket.connect(new InetSocketAddress(host, port));
         final InputStream inputStream = socket.getInputStream();
         final OutputStream outputStream = socket.getOutputStream();

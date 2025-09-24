@@ -1,6 +1,6 @@
 package org.globsframework.network.rpc.direct;
 
-import org.globsframework.network.rpc.direct.impl.DirectSimpleServer;
+import org.globsframework.network.rpc.direct.impl.AsyncSimpleServer;
 
 public interface GlobsServer {
     ExposedEndPoint addEndPoint(String host, int port);
@@ -8,6 +8,6 @@ public interface GlobsServer {
     void shutdown();
 
     static GlobsServer create(){
-        return new DirectSimpleServer();
+        return new AsyncSimpleServer();
     }
 }

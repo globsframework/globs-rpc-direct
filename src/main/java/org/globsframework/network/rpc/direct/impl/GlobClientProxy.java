@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
 public class GlobClientProxy implements GlobClient {
     private final String host;
     private final int port;
-    private DirectSimpleClient simpleClient;
+    private AsyncSimpleClient simpleClient;
 
     public GlobClientProxy(String host, int port) {
         this.host = host;
@@ -22,7 +22,7 @@ public class GlobClientProxy implements GlobClient {
             synchronized (this) {
                 if (simpleClient == null) {
                     long connectStart = System.nanoTime();
-                    simpleClient = new DirectSimpleClient(host, port);
+                    simpleClient = new AsyncSimpleClient(host, port);
                     long connectComplete = System.nanoTime();
                     System.out.println("GlobClientProxy.request " +
                                        TimeUnit.NANOSECONDS.toMicros(connectComplete - connectStart) + " µs");

@@ -6,7 +6,7 @@ import com.codahale.metrics.UniformReservoir;
 import junit.framework.TestCase;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.network.rpc.direct.impl.DirectSimpleServer;
+import org.globsframework.network.rpc.direct.impl.AsyncSimpleServer;
 import org.globsframework.network.rpc.direct.impl.GlobClientProxy;
 import org.junit.Assert;
 
@@ -15,10 +15,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class DirectSimpleServerTest extends TestCase {
+public class AsyncSimpleServerTest extends TestCase {
 
     public void testName() throws IOException {
-        DirectSimpleServer server = new DirectSimpleServer();
+        AsyncSimpleServer server = new AsyncSimpleServer();
 
         AtomicInteger counter = new AtomicInteger();
         ExposedEndPoint remote = server.addEndPoint("localhost", 3000);
