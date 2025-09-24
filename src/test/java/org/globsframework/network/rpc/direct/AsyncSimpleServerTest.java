@@ -7,7 +7,7 @@ import junit.framework.TestCase;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.network.rpc.direct.impl.AsyncSimpleServer;
-import org.globsframework.network.rpc.direct.impl.GlobClientProxy;
+import org.globsframework.network.rpc.direct.impl.RpcGlobClientProxy;
 import org.junit.Assert;
 
 import java.io.IOException;
@@ -29,7 +29,7 @@ public class AsyncSimpleServerTest extends TestCase {
         MutableGlob query = DummyObject.TYPE.instantiate()
                 .set(DummyObject.id, 1)
                 .set(DummyObject.name, "test");
-        GlobClient client = new GlobClientProxy("localhost", 3000);
+        RpcGlobClient client = new RpcGlobClientProxy("localhost", 3000);
         Glob response = null;
         for (int i = 0; i < 1000; i++) {
             response = client.request("/", query, DummyObject.TYPE).join();

@@ -5,7 +5,7 @@ import com.codahale.metrics.Snapshot;
 import com.codahale.metrics.UniformReservoir;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.network.rpc.direct.impl.GlobClientProxy;
+import org.globsframework.network.rpc.direct.impl.RpcGlobClientProxy;
 import org.junit.Assert;
 
 import java.io.IOException;
@@ -18,7 +18,7 @@ import java.util.concurrent.locks.LockSupport;
 public class Client {
     public static void main(String[] args) throws IOException, InterruptedException {
 
-        GlobClient client = new GlobClientProxy("localhost", 3000);
+        RpcGlobClient client = new RpcGlobClientProxy("localhost", 3000);
 
         ExecutorService executor = Executors.newFixedThreadPool(10);
         executor.execute(() -> loop(client));
@@ -56,7 +56,7 @@ public class Client {
         }
     }
 
-    private static void loop(GlobClient client) {
+    private static void loop(RpcGlobClient client) {
         CompletableFuture<Glob> response = null;
         final MutableGlob mutableGlob = DummyObject.TYPE.instantiate();
         for (int i = 0; i < 10000; i++) {

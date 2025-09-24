@@ -2,17 +2,17 @@ package org.globsframework.network.rpc.direct.impl;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
-import org.globsframework.network.rpc.direct.GlobClient;
+import org.globsframework.network.rpc.direct.RpcGlobClient;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-public class GlobClientProxy implements GlobClient {
+public class RpcGlobClientProxy implements RpcGlobClient {
     private final String host;
     private final int port;
     private AsyncSimpleClient simpleClient;
 
-    public GlobClientProxy(String host, int port) {
+    public RpcGlobClientProxy(String host, int port) {
         this.host = host;
         this.port = port;
     }

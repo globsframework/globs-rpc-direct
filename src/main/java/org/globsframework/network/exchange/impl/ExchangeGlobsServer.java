@@ -2,12 +2,10 @@ package org.globsframework.network.exchange.impl;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
-import org.globsframework.core.model.cache.DefaultGlobsCache;
-import org.globsframework.core.model.cache.GlobsCache;
-import org.globsframework.core.utils.serialization.DefaultBufferedSerializationOutput;
+import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.DefaultSerializationInput;
 import org.globsframework.core.utils.serialization.SerializedInput;
-import org.globsframework.network.exchange.GlobClient;
+import org.globsframework.network.exchange.GlobSingleClient;
 import org.globsframework.network.exchange.GlobsServer;
 import org.globsframework.serialisation.BinReader;
 import org.globsframework.serialisation.BinReaderFactory;
@@ -91,13 +89,13 @@ public class ExchangeGlobsServer implements GlobsServer {
     @Override
         synchronized public void onPath(String path, OnClient onClient, GlobType receiveType) {
             if (clients.containsKey(path)) {
-                throw new GlobClient.AlreadyRegisteredException(path);
+                throw new GlobSingleClient.AlreadyRegisteredException(path);
             }
             clients.put(path, new ClientInfo(onClient, receiveType));
         }
 
     record OnReceiverWithType(long l, Receiver onClient, MessageReader.OnDataServer onData, GlobType receiveType,
-                              GlobClient.Option opt) {}
+                              GlobSingleClient.Option opt) {}
 
 
 
@@ -109,7 +107,7 @@ public class ExchangeGlobsServer implements GlobsServer {
         private final BinWriter globBinWriter;
 //        private final GlobsCache globsCache;
         private final SerializedInput serializationInput;
-        private final DefaultBufferedSerializationOutput serializationOutput;
+        private final ByteBufferSerializationOutput serializationOutput;
         private final OutputStream socketOutputStream;
         private int requestId = 0;
         private volatile boolean shutdown = false;
@@ -122,7 +120,7 @@ public class ExchangeGlobsServer implements GlobsServer {
             socketOutputStream = socket.getOutputStream();
             this.clientInfoMap = pathToClient;
             serializationInput = new DefaultSerializationInput(new BufferedInputStream(inputStream));
-            serializationOutput = new DefaultBufferedSerializationOutput(socketOutputStream);
+            serializationOutput = new ByteBufferSerializationOutput(socketOutputStream);
 //            globsCache = new DefaultGlobsCache(100);
 //            globBinReader = binReader.createGlobBinReader(globType -> globsCache.newGlob(globType, requestId), serializationInput);
             globBinReader = binReader.createGlobBinReader(GlobType::instantiate, serializationInput);
@@ -141,7 +139,7 @@ public class ExchangeGlobsServer implements GlobsServer {
                         final OnReceiverWithType onClientWithType = clients.get(streamId);
                         requestId = serializationInput.readNotNullInt();
                         if (onClientWithType != null) {
-                            if (onClientWithType.opt == GlobClient.Option.WITH_ACK_BEFORE_READ_DATA) {
+                            if (onClientWithType.opt == GlobSingleClient.Option.WITH_ACK_BEFORE_READ_DATA) {
                                 synchronized (serializationOutput) {
                                     serializationOutput.write(-streamId);
                                     serializationOutput.write(CommandId.ACK.id);
@@ -151,7 +149,7 @@ public class ExchangeGlobsServer implements GlobsServer {
                             }
                             final Glob data = globBinReader.read(onClientWithType.receiveType()).orElse(null);
                             onClientWithType.onClient().receive(data);
-                            if (onClientWithType.opt == GlobClient.Option.WITH_ACK_AFTER_CLIENT_CALL) {
+                            if (onClientWithType.opt == GlobSingleClient.Option.WITH_ACK_AFTER_CLIENT_CALL) {
                                 synchronized (serializationOutput) {
                                     serializationOutput.write(-streamId);
                                     serializationOutput.write(CommandId.ACK.id);
@@ -185,11 +183,11 @@ public class ExchangeGlobsServer implements GlobsServer {
             }
             else if (code == CommandId.NEW.id) {
                 String path = serializationInput.readUtf8String();
-                final GlobClient.Option opt = switch (serializationInput.readNotNullInt()) {
-                    case 0 -> GlobClient.Option.NO_ACK;
-                    case 1 -> GlobClient.Option.WITH_ACK_BEFORE_READ_DATA;
-                    case 2 -> GlobClient.Option.WITH_ACK_BEFORE_CLIENT_CALL;
-                    case 3 -> GlobClient.Option.WITH_ACK_AFTER_CLIENT_CALL;
+                final GlobSingleClient.Option opt = switch (serializationInput.readNotNullInt()) {
+                    case 0 -> GlobSingleClient.Option.NO_ACK;
+                    case 1 -> GlobSingleClient.Option.WITH_ACK_BEFORE_READ_DATA;
+                    case 2 -> GlobSingleClient.Option.WITH_ACK_BEFORE_CLIENT_CALL;
+                    case 3 -> GlobSingleClient.Option.WITH_ACK_AFTER_CLIENT_CALL;
                     default ->
                             throw new IllegalStateException("Unexpected value: " + serializationInput.readNotNullInt());
                 };

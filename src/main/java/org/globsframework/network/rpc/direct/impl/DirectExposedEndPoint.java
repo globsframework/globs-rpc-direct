@@ -105,7 +105,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
         private final BinWriter globBinWriter;
         private final GlobsCache globsCache;
         private final SerializedInput serializationInput;
-        private final DefaultBufferedSerializationOutput serializationOutput;
+        private final ByteBufferSerializationOutput serializationOutput;
         private int requestId = 0;
         private volatile boolean shutdown = false;
 
@@ -115,7 +115,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
             OutputStream outputStream = socket.getOutputStream();
             this.receivers = receivers;
             serializationInput = new DefaultSerializationInput(new BufferedInputStream(inputStream));
-            serializationOutput = new DefaultBufferedSerializationOutput(outputStream);
+            serializationOutput = new ByteBufferSerializationOutput(outputStream);
             globsCache = new DefaultGlobsCache(100);
             globBinReader = binReader.createGlobBinReader(globType -> globsCache.newGlob(globType, requestId), serializationInput);
             this.globBinWriter = binWriter.create(serializationOutput);

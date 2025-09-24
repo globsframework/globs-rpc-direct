@@ -7,24 +7,27 @@ import org.globsframework.commandline.ParseCommandLine;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
-import org.globsframework.core.metamodel.fields.IntegerField;
-import org.globsframework.core.metamodel.fields.LongField;
-import org.globsframework.core.metamodel.fields.StringField;
+import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.Glob;
 import org.globsframework.serialisation.model.FieldNumber;
 
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
-public class Client {
+public class MultiClient {
 
     public static void main(String[] args) throws IOException, InterruptedException {
         final Glob options = ParseCommandLine.parse(Option.TYPE, args);
-        GlobSingleClient globSingleClient = GlobSingleClient.create(options.get(Option.host,  "localhost"), options.get(Option.port, 10_000));
+        GlobMultiClient globClient = GlobMultiClient.create();
+        final String[] host = options.getOrEmpty(Option.host);
+        String[] port = options.getOrEmpty(Option.port);
+        for (int i = 0; i < port.length; i++) {
+            globClient.add(host.length == 0 ? "localhost" : host[i], Integer.parseInt(port[i]));
+        }
         final UniformReservoir reservoir = new UniformReservoir();
         Histogram histogram = new Histogram(reservoir);
         final MyDataReceiver dataReceiver = new MyDataReceiver(histogram);
-        final Exchange connect = globSingleClient.connect("/path/call", dataReceiver, ExchangeData.TYPE, GlobSingleClient.Option.WITH_ACK_AFTER_CLIENT_CALL);
+        final Exchange connect = globClient.connect("/path/call", dataReceiver, ExchangeData.TYPE, GlobSingleClient.Option.WITH_ACK_AFTER_CLIENT_CALL);
 
         for (int i = 0; i < 100000; i++) {
             connect.send(ExchangeData.create("bla bla", i)).join();
@@ -105,18 +108,19 @@ public class Client {
         }
     }
 
+
     static class Option {
         public static final GlobType TYPE;
 
-        public static final StringField host;
+        public static final StringArrayField host;
 
-        public static final IntegerField port;
+        public static final StringArrayField port;
 
         static {
             final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("Option");
             TYPE = typeBuilder.unCompleteType();
-            host = typeBuilder.declareStringField("host");
-            port = typeBuilder.declareIntegerField("port");
+            host = typeBuilder.declareStringArrayField("host");
+            port = typeBuilder.declareStringArrayField("port");
             typeBuilder.complete();
         }
     }

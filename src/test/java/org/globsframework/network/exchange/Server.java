@@ -1,10 +1,16 @@
 package org.globsframework.network.exchange;
 
+import org.globsframework.commandline.ParseCommandLine;
+import org.globsframework.core.metamodel.GlobType;
+import org.globsframework.core.metamodel.GlobTypeBuilder;
+import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
+import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.model.Glob;
 
 public class Server {
     public static void main(String[] args) throws InterruptedException {
-        GlobsServer server = GlobsServer.create("localhost", 13_000);
+        final Glob option = ParseCommandLine.parse(Option.TYPE, args);
+        GlobsServer server = GlobsServer.create("localhost", option.get(Option.port, 13_000));
         server.onPath("/path/call", new GlobsServer.OnClient() {
             @Override
             public GlobsServer.Receiver onNewClient(GlobsServer.OnData onData) {
@@ -23,4 +29,18 @@ public class Server {
         }, Client.ExchangeData.TYPE);
         Thread.currentThread().join();
     }
+
+    static class Option {
+        public static final GlobType TYPE;
+
+        public static final IntegerField port;
+
+        static {
+            final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("Option");
+            TYPE = typeBuilder.unCompleteType();
+            port = typeBuilder.declareIntegerField("port");
+            typeBuilder.complete();
+        }
+    }
+
 }

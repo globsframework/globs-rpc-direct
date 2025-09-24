@@ -1,12 +1,12 @@
-package org.globsframework.network.exchange.impl;
+package org.globsframework.network.exchange.impl.single;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
-import org.globsframework.core.utils.serialization.DefaultBufferedSerializationOutput;
+import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.DefaultSerializationInput;
-import org.globsframework.core.utils.serialization.DefaultSerializationOutput;
 import org.globsframework.network.exchange.Exchange;
-import org.globsframework.network.exchange.GlobClient;
+import org.globsframework.network.exchange.GlobSingleClient;
+import org.globsframework.network.exchange.impl.CommandId;
 import org.globsframework.serialisation.BinReader;
 import org.globsframework.serialisation.BinReaderFactory;
 import org.globsframework.serialisation.BinWriter;
@@ -23,21 +23,21 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class GlobClientImpl implements GlobClient {
-    private static final Logger log = LoggerFactory.getLogger(GlobClientImpl.class);
+public class GlobSingleClientImpl implements GlobSingleClient {
+    private static final Logger log = LoggerFactory.getLogger(GlobSingleClientImpl.class);
     private final String host;
     private final int port;
     private final Socket socket;
     private final DefaultSerializationInput serializedInput;
     private final BinReader globBinReader;
-    private final DefaultBufferedSerializationOutput serializedOutput;
+    private final ByteBufferSerializationOutput serializedOutput;
     private final BinWriter binWriter;
     private final Executor executorService;
     private final AtomicLong streamId;
     private final OutputStream socketOutputStream;
     private Map<Long, StreamInfo> requests = new ConcurrentHashMap<>();
 
-    public GlobClientImpl(String host, int port) throws IOException {
+    public GlobSingleClientImpl(String host, int port) throws IOException {
         streamId = new AtomicLong(0);
         this.host = host;
         this.port = port;
@@ -49,7 +49,7 @@ public class GlobClientImpl implements GlobClient {
         socketOutputStream = socket.getOutputStream();
         serializedInput = new DefaultSerializationInput(new BufferedInputStream(inputStream));
         globBinReader = binReaderFactory.createGlobBinReader(serializedInput);
-        serializedOutput = new DefaultBufferedSerializationOutput(socketOutputStream);
+        serializedOutput = new ByteBufferSerializationOutput(socketOutputStream);
         binWriter = binWriterFactory.create(serializedOutput);
         executorService = Executors.newSingleThreadExecutor();
         executorService.execute(this::read);
@@ -115,16 +115,16 @@ public class GlobClientImpl implements GlobClient {
             serializedOutput.writeUtf8String(path);
             serializedOutput.write(option.opt);
         }
-        return new ExchangeClientSide(current, results, option);
+        return new SingleExchangeClientSide(current, results, option);
     }
 
-    private class ExchangeClientSide implements Exchange {
+    private class SingleExchangeClientSide implements Exchange {
         private final long current;
         private final Map<Integer, CompletableFuture<Boolean>> results;
         private final Option option;
         private final AtomicInteger seq = new AtomicInteger(0);
 
-        public ExchangeClientSide(long current, Map<Integer, CompletableFuture<Boolean>> results, Option option) {
+        public SingleExchangeClientSide(long current, Map<Integer, CompletableFuture<Boolean>> results, Option option) {
             this.current = current;
             this.results = results;
             this.option = option;
