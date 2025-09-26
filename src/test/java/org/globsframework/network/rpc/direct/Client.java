@@ -6,7 +6,7 @@ import com.codahale.metrics.UniformReservoir;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.network.rpc.direct.impl.RpcGlobClientProxy;
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
@@ -64,7 +64,7 @@ public class Client {
                     .set(DummyObject.id, i)
                     .set(DummyObject.sendAt, System.nanoTime());
              response = client.request("/", query, DummyObject.TYPE);
-            Assert.assertEquals(i, response.join().get(DummyObject.id).intValue());
+            Assertions.assertEquals(i, response.join().get(DummyObject.id).intValue());
         }
 //        if (true) {
 //            return;
@@ -90,7 +90,7 @@ public class Client {
 //                    .set(DummyObject.name, "Echo message #" + count);
                     .set(DummyObject.sendAt, start);
             response = client.request("/", query, DummyObject.TYPE);
-            Assert.assertEquals(count, response.join().get(DummyObject.id).intValue());
+            Assertions.assertEquals(count, response.join().get(DummyObject.id).intValue());
             long end = System.nanoTime();
             final long micros = TimeUnit.NANOSECONDS.toMicros(end - start);
             tot += micros;

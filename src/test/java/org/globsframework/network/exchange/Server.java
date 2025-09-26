@@ -10,7 +10,7 @@ import org.globsframework.core.model.Glob;
 public class Server {
     public static void main(String[] args) throws InterruptedException {
         final Glob option = ParseCommandLine.parse(Option.TYPE, args);
-        GlobsServer server = GlobsServer.create("localhost", option.get(Option.port, 13_000));
+        GlobsServer server = GlobsServer.create("localhost", option.get(Option.port, 13_000), Runnable::run);
         server.onPath("/path/call", new GlobsServer.OnClient() {
             @Override
             public GlobsServer.Receiver onNewClient(GlobsServer.OnData onData) {

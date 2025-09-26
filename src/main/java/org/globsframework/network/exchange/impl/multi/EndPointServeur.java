@@ -25,7 +25,7 @@ class EndPointServeur implements GlobMultiClient.Endpoint, SendData, NByteBuffer
     private final GlobMultiClientImpl.AddPendingWrite addPendingWrite;
     private final ClientShare clientShare;
     private final RequestAccess requestAccess;
-    private final SerializedInput serializedInput;
+    private final NByteBufferSerializationInput serializedInput;
     private final BinReader globBinReader;
     private final SocketChannel channel;
     private final PendingWrite pendingWrite = new PendingWrite();
@@ -110,12 +110,27 @@ class EndPointServeur implements GlobMultiClient.Endpoint, SendData, NByteBuffer
                 } else {
                     final int requestId = serializedInput.readNotNullInt();
                     final DataReceivedInfo responseInfo = requestAccess.dataReceived(streamId, requestId);
+                    int dataSize = serializedInput.readNotNullInt();
+                    serializedInput.limit(dataSize);
                     if (responseInfo == null) {
                         globBinReader.read(null);
                     } else {
-                        final Optional<Glob> read = globBinReader.read(responseInfo.receiveType());
-                        responseInfo.dataReceiver().receive(read.orElse(null));
+                        Optional<Glob> read = null;
+                        try {
+                            read = globBinReader.read(responseInfo.receiveType());
+                        } catch (Exception e) {
+                            log.error("Error reading data for type " + responseInfo.receiveType().getName(), e);
+                            serializedInput.readToLimit();
+                        }
+                        if (read != null) {
+                            try {
+                                responseInfo.dataReceiver().receive(read.orElse(null));
+                            } catch (Exception e) {
+                                log.error("Error in receiver.", e);
+                            }
+                        }
                     }
+                    serializedInput.resetLimit();
                 }
             }
         } catch (Throwable throwable) {
@@ -124,13 +139,14 @@ class EndPointServeur implements GlobMultiClient.Endpoint, SendData, NByteBuffer
         }
     }
 
-    public void send(Data data) {
+    synchronized public void send(Data data) {
         data.incWriter();
         if (!pendingWrite.addWriteIfNeeded(data)) {
             try {
                 data.byteBuffer.mark();
                 channel.write(data.byteBuffer);
             } catch (IOException e) {
+                data.byteBuffer.clear();
                 data.release();
                 // remove endPoint => add to retry.
                 return;
@@ -138,6 +154,7 @@ class EndPointServeur implements GlobMultiClient.Endpoint, SendData, NByteBuffer
             if (data.byteBuffer.hasRemaining()) {
                 pendingWrite.add(data);
                 setPendingWrite.set();
+                data.byteBuffer.clear();
             } else {
                 data.byteBuffer.reset();
                 data.release();

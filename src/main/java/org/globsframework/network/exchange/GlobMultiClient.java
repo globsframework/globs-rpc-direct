@@ -6,6 +6,8 @@ import java.io.IOException;
 
 public interface GlobMultiClient extends GlobClient  {
 
+    int waitForServer(int count, int timeoutInMSEC);
+
     Endpoint add(String host, int port) throws IOException;
 
     interface Endpoint {

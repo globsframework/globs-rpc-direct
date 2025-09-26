@@ -115,7 +115,12 @@ public class AsyncSimpleClient implements AutoCloseable {
                 if (responseInfo == null) {
                     throw new RuntimeException("Bug : no response found for order " + readOrder);
                 } else {
-                    responseInfo.result.complete(globBinReader.read(responseInfo.resultType).orElse(null));
+                    try {
+                        final Glob value = globBinReader.read(responseInfo.resultType).orElse(null);
+                        responseInfo.result.complete(value);
+                    } catch (Exception e) {
+                        responseInfo.result.completeExceptionally(e);
+                    }
                 }
             }
         } catch (Throwable throwable) {

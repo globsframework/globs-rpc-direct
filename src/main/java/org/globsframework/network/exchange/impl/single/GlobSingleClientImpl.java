@@ -2,11 +2,13 @@ package org.globsframework.network.exchange.impl.single;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.utils.serialization.BufferInputStreamWithLimit;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.DefaultSerializationInput;
 import org.globsframework.network.exchange.Exchange;
 import org.globsframework.network.exchange.GlobSingleClient;
 import org.globsframework.network.exchange.impl.CommandId;
+import org.globsframework.network.exchange.impl.DataSerialisationUtils;
 import org.globsframework.serialisation.BinReader;
 import org.globsframework.serialisation.BinReaderFactory;
 import org.globsframework.serialisation.BinWriter;
@@ -33,23 +35,28 @@ public class GlobSingleClientImpl implements GlobSingleClient {
     private final ByteBufferSerializationOutput serializedOutput;
     private final BinWriter binWriter;
     private final Executor executorService;
-    private final AtomicLong streamId;
+    private final AtomicLong lastStreamId;
     private final OutputStream socketOutputStream;
+    private final BufferInputStreamWithLimit bufferInputStreamWithLimit;
     private Map<Long, StreamInfo> requests = new ConcurrentHashMap<>();
+    private int maxMessageSize;
 
     public GlobSingleClientImpl(String host, int port) throws IOException {
-        streamId = new AtomicLong(0);
+        this.maxMessageSize = 10 * 1024;
+        lastStreamId = new AtomicLong(0);
         this.host = host;
         this.port = port;
         BinReaderFactory binReaderFactory = BinReaderFactory.create();
         BinWriterFactory binWriterFactory = BinWriterFactory.create();
         socket = new Socket();
+        socket.setTcpNoDelay(true);
         socket.connect(new InetSocketAddress(host, port));
         final InputStream inputStream = socket.getInputStream();
         socketOutputStream = socket.getOutputStream();
-        serializedInput = new DefaultSerializationInput(new BufferedInputStream(inputStream));
+        bufferInputStreamWithLimit = new BufferInputStreamWithLimit(inputStream);
+        serializedInput = new DefaultSerializationInput(bufferInputStreamWithLimit);
         globBinReader = binReaderFactory.createGlobBinReader(serializedInput);
-        serializedOutput = new ByteBufferSerializationOutput(socketOutputStream);
+        serializedOutput = new ByteBufferSerializationOutput(new byte[maxMessageSize]);
         binWriter = binWriterFactory.create(serializedOutput);
         executorService = Executors.newSingleThreadExecutor();
         executorService.execute(this::read);
@@ -58,6 +65,7 @@ public class GlobSingleClientImpl implements GlobSingleClient {
     private void read() {
         try {
             serializedOutput.write(1); //max Read/Write version
+            socketOutputStream.write(serializedOutput.getBuffer(), 0, serializedOutput.position());
             int maxReadWriteVersion = serializedInput.readNotNullInt();
 
             while (true) {
@@ -87,11 +95,24 @@ public class GlobSingleClientImpl implements GlobSingleClient {
                 else {
                     final StreamInfo responseInfo = requests.get(streamId);
                     final int requestId = serializedInput.readNotNullInt();
+                    final int dataSize = serializedInput.readNotNullInt();
+                    bufferInputStreamWithLimit.limit(dataSize);
                     if (responseInfo == null) {
                         globBinReader.read(null);
                     } else {
-                        final Optional<Glob> read = globBinReader.read(responseInfo.receiveType());
-                        responseInfo.dataReceiver().receive(read.orElse(null));
+                        Optional<Glob> read = null;
+                        try {
+                            read = globBinReader.read(responseInfo.receiveType());
+                        } catch (Exception e) {
+                            log.error("Fail to read type " + responseInfo.receiveType().getName() + " check the type or serialization.");
+                        }
+                        if (read != null) {
+                            try {
+                                responseInfo.dataReceiver().receive(read.orElse(null));
+                            } catch (Exception e) {
+                                log.error("Error in receiver.", e);
+                            }
+                        }
                     }
                 }
             }
@@ -106,56 +127,70 @@ public class GlobSingleClientImpl implements GlobSingleClient {
 
     @Override
     public Exchange connect(String path, DataReceiver dataReceiver, GlobType receiveType, Option option) {
-        final long current = streamId.incrementAndGet();
+        final long streamId = this.lastStreamId.incrementAndGet();
         Map<Integer, CompletableFuture<Boolean>> results = option == Option.NO_ACK ? Map.of() : new ConcurrentHashMap<>();
-        requests.put(current, new StreamInfo(current, dataReceiver, receiveType, results));
+        requests.put(streamId, new StreamInfo(streamId, dataReceiver, receiveType, results));
         synchronized (serializedOutput) {
-            serializedOutput.write(-current);
+            serializedOutput.reset();
+            serializedOutput.write(-streamId);
             serializedOutput.write(CommandId.NEW.id);
             serializedOutput.writeUtf8String(path);
             serializedOutput.write(option.opt);
+            try {
+                socketOutputStream.write(serializedOutput.getBuffer(), 0, serializedOutput.position());
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
-        return new SingleExchangeClientSide(current, results, option);
+        return new SingleExchangeClientSide(streamId, results, option);
     }
 
     private class SingleExchangeClientSide implements Exchange {
-        private final long current;
+        private final long streamId;
         private final Map<Integer, CompletableFuture<Boolean>> results;
         private final Option option;
-        private final AtomicInteger seq = new AtomicInteger(0);
+        private final AtomicInteger lastRequestId = new AtomicInteger(0);
 
-        public SingleExchangeClientSide(long current, Map<Integer, CompletableFuture<Boolean>> results, Option option) {
-            this.current = current;
+        public SingleExchangeClientSide(long streamId, Map<Integer, CompletableFuture<Boolean>> results, Option option) {
+            this.streamId = streamId;
             this.results = results;
             this.option = option;
         }
 
         @Override
         public CompletableFuture<Boolean> send(Glob data) {
-            final int lSeq = seq.incrementAndGet();
+            final int requestId = lastRequestId.incrementAndGet();
             final CompletableFuture<Boolean> value;
             if (option != Option.NO_ACK) {
                 value = new CompletableFuture<>();
-                results.put(lSeq, value);
+                results.put(requestId, value);
             }
             else {
                 value = CompletableFuture.completedFuture(true);
             }
             synchronized (serializedOutput) {
-                serializedOutput.write(current);
-                serializedOutput.write(lSeq);
-                binWriter.write(data);
-                serializedOutput.flush();
+                DataSerialisationUtils.serializeMessageData(data, streamId, requestId, serializedOutput, binWriter);
+                try {
+                    socketOutputStream.write(serializedOutput.getBuffer(), 0, serializedOutput.position());
+                } catch (IOException e) {
+                    return CompletableFuture.failedFuture(e);
+                }
             }
-//            serializedOutput.flush();
             return value;
         }
 
         @Override
         public void close() {
-            requests.remove(current);
-            serializedOutput.write(-current);
-            serializedOutput.write(1);
+            requests.remove(streamId);
+            synchronized (serializedOutput) {
+                serializedOutput.reset();
+                serializedOutput.write(-streamId);
+                serializedOutput.write(1);
+                try {
+                    socketOutputStream.write(serializedOutput.getBuffer(), 0, serializedOutput.position());
+                } catch (IOException e) {
+                }
+            }
             if (!results.isEmpty()) {
                 Exception exception = new RuntimeException("Connection closed");
                 results.forEach((key, value) -> {

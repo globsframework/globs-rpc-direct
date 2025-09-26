@@ -4,13 +4,17 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
 import org.globsframework.network.exchange.impl.ExchangeGlobsServer;
 
+import java.util.concurrent.Executor;
+
 public interface GlobsServer {
 
-    static GlobsServer create(String host, int port) {
-        final ExchangeGlobsServer exchangeGlobsServer = new ExchangeGlobsServer(host, port);
-        exchangeGlobsServer.init();
-        return exchangeGlobsServer;
+    static GlobsServer create(String host, int port, Executor executor) {
+        ExchangeGlobsServer.Builder builder = ExchangeGlobsServer.Builder.create(host, port);
+        builder.with(executor);
+        return builder.build();
     }
+
+    int getPort();
 
     void shutdown();
 

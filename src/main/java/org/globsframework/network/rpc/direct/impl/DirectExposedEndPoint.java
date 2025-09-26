@@ -133,8 +133,8 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
                     final String path = serializationInput.readUtf8String();
                     final ReceivedWithType receiver = this.receivers.get(path);
                     if (receiver == null) {
-                            log.warn("No receiver found for path {}", path);
-                            globBinReader.read(null); // read the buffer content
+                        log.warn("No receiver found for path {}", path);
+                        globBinReader.read(null); // read the buffer content
                         synchronized (this) {
                             serializationOutput.write(order);
                             globBinWriter.write(((Glob) null));
