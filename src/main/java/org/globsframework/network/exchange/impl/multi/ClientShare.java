@@ -4,7 +4,7 @@ import java.util.List;
 
 interface ClientShare {
 
-    List<SendData> getEndPointServeurs();
+    List<SendData> getEndPointServers();
 
     Data getFreeData();
 

@@ -146,15 +146,17 @@ class EndPointServeur implements GlobMultiClient.Endpoint, SendData, NByteBuffer
                 data.byteBuffer.mark();
                 channel.write(data.byteBuffer);
             } catch (IOException e) {
-                data.byteBuffer.clear();
+                log.error("Error writing data", e);
+                data.byteBuffer.reset();
                 data.release();
                 // remove endPoint => add to retry.
                 return;
             }
             if (data.byteBuffer.hasRemaining()) {
+                log.debug("EndPointServeur.send has remaining");
                 pendingWrite.add(data);
                 setPendingWrite.set();
-                data.byteBuffer.clear();
+                data.byteBuffer.reset();
             } else {
                 data.byteBuffer.reset();
                 data.release();

@@ -30,7 +30,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     private final Map<Long, ClientConnectionInfo> requests = new ConcurrentHashMap<>();
     private final Selector selector;
     private final int maxMessageSize;
-    private final List<EndPointServeur> endPointServeurs = new CopyOnWriteArrayList<>();
+    private final List<EndPointServeur> endPointServers = new CopyOnWriteArrayList<>();
     private final Map<ServerAddress, Endpoint> serverAddresses = new HashMap<>();
     private final Map<ServerAddress, EndPointServeur> actifEndPoints = new HashMap<>();
     private final Set<ServerAddress> pendingServerAddresses = new HashSet<>();
@@ -135,13 +135,14 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                                     break;
                                 }
                                 if (current.buffer().hasRemaining()) {
+                                    log.debug("GlobMultiClientImpl.flushPendingWrite has remaining" );
                                     break;
                                 }
                                 current.data().release();
                                 current = p.pendingWrite().releaseCurrentAndGetNext();
                                 if (current == null) {
+                                    log.debug("GlobMultiClientImpl.flushPendingWrite no more remaining" );
                                     selectionKey.interestOps(0);
-
                                     break;
                                 }
                             }
@@ -163,10 +164,10 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         final long endAt = System.currentTimeMillis() + timeoutInMSEC;
         addRemoveServerLock.lock();
         try {
-            while (endPointServeurs.size() < count && System.currentTimeMillis() < endAt) {
+            while (endPointServers.size() < count && System.currentTimeMillis() < endAt) {
                 condition.await(Math.max(1, System.currentTimeMillis() - endAt), TimeUnit.MILLISECONDS);
             }
-            return endPointServeurs.size();
+            return endPointServers.size();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
@@ -217,7 +218,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                 endPointServeur.send(data);
                 data.release();
             }
-            endPointServeurs.add(endPointServeur);
+            endPointServers.add(endPointServeur);
             actifEndPoints.put(serverAddress, endPointServeur);
         } finally {
             serverAndConnectionLock.unlock();
@@ -248,7 +249,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
             final long streamId = lastStreamId.incrementAndGet();
             AckMgt ackMgt = option == GlobClient.Option.NO_ACK ? NoAck.instance : new AckMgtImpl();
             final Data data = createConnectData(streamId, path, option);
-            for (EndPointServeur endPointServeur : endPointServeurs) {
+            for (EndPointServeur endPointServeur : endPointServers) {
                 endPointServeur.send(data);
             }
             data.release();
@@ -271,8 +272,8 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     }
 
     @Override
-    public List<SendData> getEndPointServeurs() {
-        return (List<SendData>) (List<?>) endPointServeurs;
+    public List<SendData> getEndPointServers() {
+        return (List<SendData>) (List<?>) endPointServers;
     }
 
     public Data getFreeData() {
@@ -298,7 +299,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         addRemoveServerLock.lock();
         try {
             final EndPointServeur remove = actifEndPoints.remove(serverAddress);
-            endPointServeurs.remove(remove);
+            endPointServers.remove(remove);
             pendingServerAddresses.remove(serverAddress);
         } catch (Exception e) {
             throw new RuntimeException(e);

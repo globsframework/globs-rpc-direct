@@ -23,8 +23,8 @@ class MultiExchangeClientSide implements Exchange {
 
     @Override
     public CompletableFuture<Boolean> send(Glob data) {
-        final List<SendData> endPointServeurs = clientShare.getEndPointServeurs();
-        if (endPointServeurs.isEmpty()) {
+        final List<SendData> endPointServers = clientShare.getEndPointServers();
+        if (endPointServers.isEmpty()) {
             return CompletableFuture.failedFuture(new RuntimeException("No endpoint server"));
         }
         final int requestId = nextRequestId.incrementAndGet();
@@ -34,9 +34,11 @@ class MultiExchangeClientSide implements Exchange {
 
         DataSerialisationUtils.serializeMessageData(data, streamId, requestId, serializedOutput, sendableData.binWriter);
         sendableData.complete();
-        for (SendData endPointServeur : endPointServeurs) {
-            endPointServeur.send(sendableData);
+        sendableData.incWriter();
+        for (SendData endPointServer : endPointServers) {
+            endPointServer.send(sendableData);
         }
+        sendableData.release();
         return value;
     }
 
@@ -48,7 +50,7 @@ class MultiExchangeClientSide implements Exchange {
         data.serializedOutput.write(1);
         data.complete();
         data.incWriter();
-        for (SendData endPointServeur : clientShare.getEndPointServeurs()) {
+        for (SendData endPointServeur : clientShare.getEndPointServers()) {
             endPointServeur.send(data);
         }
         data.release();
