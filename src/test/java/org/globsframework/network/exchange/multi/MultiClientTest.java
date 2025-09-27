@@ -46,7 +46,21 @@ public class MultiClientTest {
         int serverCount = globMultiClient.waitForServer(3, 1000);
         Assertions.assertEquals(3, serverCount);
         exchange.send(ExchangeData.create("d", 1)).join();
+        long until = System.currentTimeMillis() + 2000;
+        while (count.get() < 3 && until > System.currentTimeMillis()) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+            }
+        }
         Assertions.assertEquals(3, count.get());
+        until = System.currentTimeMillis() + 2000;
+        while (dataReceiver.count.get() < 3 && until > System.currentTimeMillis()) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+            }
+        }
         Assertions.assertEquals(3, dataReceiver.count.get());
 
         final CompletableFuture<Void> d = CompletableFuture.runAsync(() -> {

@@ -80,6 +80,7 @@ public class AsyncSimpleClient implements AutoCloseable {
         BinWriterFactory binWriterFactory = BinWriterFactory.create();
         socket = new Socket();
         socket.connect(new InetSocketAddress(host, port));
+        socket.setTcpNoDelay(true);
         final InputStream inputStream = socket.getInputStream();
         final OutputStream outputStream = socket.getOutputStream();
         serializedInput = new DefaultSerializationInput(new BufferedInputStream(inputStream));

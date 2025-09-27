@@ -45,6 +45,7 @@ class EndPointServeur implements GlobMultiClient.Endpoint, SendData, NByteBuffer
         channel = SocketChannel.open();
         channel.configureBlocking(false);
         channel.connect(new InetSocketAddress(serverAddress.host(), serverAddress.port()));
+        channel.socket().setTcpNoDelay(true);
         readByteBuffer = ByteBuffer.allocateDirect(1024 * 1024);
         readByteBuffer.limit(0);
         serializedInput = new NByteBufferSerializationInput(readByteBuffer, this);

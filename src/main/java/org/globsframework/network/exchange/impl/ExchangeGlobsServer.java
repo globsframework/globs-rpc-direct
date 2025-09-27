@@ -214,8 +214,10 @@ public class ExchangeGlobsServer implements GlobsServer {
                             Optional<Glob> read = null;
                             try {
                                 read = globBinReader.read(onClientWithType.receiveType());
-                            } catch (
-                                    Exception e) { // it can be an IOException that was lost. But that exception will be rethrown when reading the next data.
+                                if (!bufferedInputStream.readToLimit()) {
+                                    throw new RuntimeException("Bug : stream not read to limit.");
+                                }
+                            } catch (Exception e) { // it can be an IOException that we lost. But that exception will be rethrown when reading the next data.
                                 log.error("Error reading data " +
                                           onClientWithType.receiveType().getName() + " => check if the GlobType match.", e);
                                 bufferedInputStream.readToLimit();
@@ -239,8 +241,10 @@ public class ExchangeGlobsServer implements GlobsServer {
                         } else {
                             // closed to soon
                             globBinReader.read(null);
+                            if (!bufferedInputStream.readToLimit()) {
+                                throw new RuntimeException("Bug : stream not read to limit.");
+                            }
                         }
-                        bufferedInputStream.resetLimit();
                     }
                 }
             } catch (Throwable e) {
