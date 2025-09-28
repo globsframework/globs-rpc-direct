@@ -1,10 +1,14 @@
 package org.globsframework.network.exchange.impl.multi;
 
-import java.util.List;
-
 interface ClientShare {
 
-    List<SendData> getEndPointServers();
+    SendData[] getEndPointServers();
+
+    void sendToAll(Data data);
+
+    void sendToOne(Data data);
+
+    void sendToFirst(Data data);
 
     Data getFreeData();
 
@@ -12,5 +16,5 @@ interface ClientShare {
 
     void releaseClient(long current);
 
-    void close(GlobMultiClientImpl.ServerAddress serverAddress);
+    void connectionLost(GlobMultiClientImpl.ServerAddress serverAddress);
 }

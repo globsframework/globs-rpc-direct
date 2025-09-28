@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -46,9 +45,9 @@ public class PerfTest {
         GlobMultiClient.Endpoint endpoint3 = globMultiClient.add("localhost", server3.getPort());
         final CountDataReceiver dataReceiver = new CountDataReceiver();
         final Exchange exchange = globMultiClient.connect("/path", dataReceiver, ExchangeData.TYPE,
-                GlobClient.Option.NO_ACK);
+                GlobClient.AckOption.NO_ACK, GlobClient.SendOption.SEND_TO_ALL);
 
-        int serverCount = globMultiClient.waitForServer(3, 1000);
+        int serverCount = globMultiClient.waitForActifServer(3, 1000);
         Assertions.assertEquals(3, serverCount);
 
         final CompletableFuture<Void> d = CompletableFuture.runAsync(() -> {

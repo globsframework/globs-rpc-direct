@@ -2,7 +2,6 @@ package org.globsframework.network.exchange.impl.multi;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.network.exchange.Exchange;
-import org.globsframework.network.exchange.GlobClient;
 import org.globsframework.network.exchange.GlobMultiClient;
 import org.globsframework.network.exchange.impl.CommandId;
 import org.slf4j.Logger;
@@ -23,8 +22,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPointServeur.RequestAccess {
     private static final Logger log = LoggerFactory.getLogger(GlobMultiClientImpl.class);
     private final Lock serverAndConnectionLock = new ReentrantLock(); // prevent mixing adding new server and receiveing a new request
-    private final Lock addRemoveServerLock = new ReentrantLock();
-    private final Condition condition = addRemoveServerLock.newCondition();
+    private final Condition condition = serverAndConnectionLock.newCondition();
     private final AtomicLong lastStreamId;
     private final Executor executorService;
     private final Map<Long, ClientConnectionInfo> requests = new ConcurrentHashMap<>();
@@ -35,6 +33,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     private final Map<ServerAddress, EndPointServeur> actifEndPoints = new HashMap<>();
     private final Set<ServerAddress> pendingServerAddresses = new HashSet<>();
     private final Deque<Data> freeSendableData = new ConcurrentLinkedDeque<>();
+    private SendData[] actifServer = new SendData[0];
 
     public GlobMultiClientImpl(int maxMessageSize) throws IOException {
         this.maxMessageSize = maxMessageSize;
@@ -48,7 +47,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     }
 
     private void connectServer() {
-        addRemoveServerLock.lock();
+        serverAndConnectionLock.lock();
         try {
             while (true) {
                 if (pendingServerAddresses.isEmpty()) {
@@ -64,12 +63,12 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                     }
                 }
                 condition.signalAll();
-                condition.await(5, TimeUnit.SECONDS); // prevent looping on pending server not responding
+                condition.await(5, TimeUnit.SECONDS); // prevent looping top frequently on the pending server not responding
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } finally {
-            addRemoveServerLock.unlock();
+            serverAndConnectionLock.unlock();
         }
     }
 
@@ -78,6 +77,14 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         final ClientConnectionInfo exchangeClientSide = requests.get(streamId);
         if (exchangeClientSide != null) {
             exchangeClientSide.ackMgt.received(requestId);
+        }
+    }
+
+    @Override
+    public void error(long streamId, int requestId, String errorMessage) {
+        final ClientConnectionInfo exchangeClientSide = requests.get(streamId);
+        if (exchangeClientSide != null) {
+            exchangeClientSide.ackMgt.error(requestId, errorMessage);
         }
     }
 
@@ -160,26 +167,26 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     public record ServerAddress(String host, int port) {
     }
 
-    public int waitForServer(int count, int timeoutInMSEC) {
+    public int waitForActifServer(int count, int timeoutInMSEC) {
         final long endAt = System.currentTimeMillis() + timeoutInMSEC;
-        addRemoveServerLock.lock();
+        serverAndConnectionLock.lock();
         try {
-            while (endPointServers.size() < count && System.currentTimeMillis() < endAt) {
+            while (actifEndPoints.size() < count && System.currentTimeMillis() < endAt) {
                 condition.await(Math.max(1, System.currentTimeMillis() - endAt), TimeUnit.MILLISECONDS);
             }
-            return endPointServers.size();
+            return actifEndPoints.size();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         } finally {
-            addRemoveServerLock.unlock();
+            serverAndConnectionLock.unlock();
         }
     }
 
     @Override
     public Endpoint add(String host, int port) throws IOException {
         final ServerAddress serverAddress = new ServerAddress(host, port);
-        addRemoveServerLock.lock();
+        serverAndConnectionLock.lock();
         try {
             if (serverAddresses.containsKey(serverAddress)) {
                 return serverAddresses.get(serverAddress);
@@ -190,12 +197,17 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                 final Endpoint endpoint = new Endpoint() {
                     @Override
                     public void unregister() {
-                        addRemoveServerLock.lock();
+                        serverAndConnectionLock.lock();
                         try {
                             serverAddresses.remove(serverAddress);
                             pendingServerAddresses.remove(serverAddress);
+                            final EndPointServeur remove = actifEndPoints.remove(serverAddress);
+                            actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
+                            if (remove != null) {
+                                remove.shutdown();
+                            }
                         } finally {
-                            addRemoveServerLock.unlock();
+                            serverAndConnectionLock.unlock();
                         }
                     }
                 };
@@ -203,30 +215,30 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                 return endpoint;
             }
         }finally {
-            addRemoveServerLock.unlock();
+            serverAndConnectionLock.unlock();
         }
     }
 
-    public Endpoint tryAdd(ServerAddress serverAddress) throws IOException {
+    public void tryAdd(ServerAddress serverAddress) throws IOException {
         final EndPointServeur endPointServeur = new EndPointServeur(serverAddress, this::addPendingWrite, this, this, executorService);
 
         serverAndConnectionLock.lock();
         try {
             for (Map.Entry<Long, ClientConnectionInfo> longExchangeClientSideEntry : requests.entrySet()) {
                 final Data data = createConnectData(longExchangeClientSideEntry.getKey(), longExchangeClientSideEntry.getValue().path,
-                        longExchangeClientSideEntry.getValue().option);
+                        longExchangeClientSideEntry.getValue().ackOption);
                 endPointServeur.send(data);
                 data.release();
             }
             endPointServers.add(endPointServeur);
             actifEndPoints.put(serverAddress, endPointServeur);
+            actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
         } finally {
             serverAndConnectionLock.unlock();
         }
-        return endPointServeur;
     }
 
-    private Data createConnectData(Long longExchangeClientSideEntry, String longExchangeClientSideEntry1, Option longExchangeClientSideEntry2) {
+    private Data createConnectData(Long longExchangeClientSideEntry, String longExchangeClientSideEntry1, AckOption longExchangeClientSideEntry2) {
         final Data data = getFreeData();
         data.serializedOutput.write(-longExchangeClientSideEntry);
         data.serializedOutput.write(CommandId.NEW.id);
@@ -237,25 +249,29 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         return data;
     }
 
-    record ClientConnectionInfo(DataReceivedInfo dataReceivedInfo, String path, Option option, AckMgt ackMgt,
-                                MultiExchangeClientSide exchangeClientSide) {
+    record ClientConnectionInfo(DataReceivedInfo dataReceivedInfo, String path, AckOption ackOption, AckMgt ackMgt,
+                                AbstractExchangeClientToServer exchangeClientSide) {
     }
 
     @Override
-    public Exchange connect(String path, DataReceiver dataReceiver, GlobType receiveType, Option option) {
+    public Exchange connect(String path, DataReceiver dataReceiver, GlobType receiveType, AckOption ackOption, SendOption sendOption) {
         serverAndConnectionLock.lock();
-        final MultiExchangeClientSide exchangeClientSide;
+        final AbstractExchangeClientToServer exchangeClientSide;
         try {
             final long streamId = lastStreamId.incrementAndGet();
-            AckMgt ackMgt = option == GlobClient.Option.NO_ACK ? NoAck.instance : new AckMgtImpl();
-            final Data data = createConnectData(streamId, path, option);
-            for (EndPointServeur endPointServeur : endPointServers) {
-                endPointServeur.send(data);
+            AckMgt ackMgt = ackOption == AckOption.NO_ACK ? NoAck.instance : new AckMgtImpl();
+            final Data data = createConnectData(streamId, path, ackOption);
+            for (SendData sendData : actifServer) {
+                sendData.send(data);
             }
             data.release();
             DataReceivedInfo dataReceivedInfo = new DataReceivedInfo(dataReceiver, receiveType);
-            exchangeClientSide = new MultiExchangeClientSide(streamId, this, ackMgt);
-            requests.put(streamId, new ClientConnectionInfo(dataReceivedInfo, path, option, ackMgt, exchangeClientSide));
+            exchangeClientSide = switch (sendOption) {
+                case SEND_TO_ALL -> new ExchangeClientToAllServer(streamId, this, ackMgt);
+                case SEND_TO_FIRST -> new ExchangeClientToFirstServer(streamId, this, ackMgt);
+                case SEND_TO_ANY -> new ExchangeClientToRandomServer(streamId, this, ackMgt);
+            };
+            requests.put(streamId, new ClientConnectionInfo(dataReceivedInfo, path, ackOption, ackMgt, exchangeClientSide));
         } finally {
             serverAndConnectionLock.unlock();
         }
@@ -269,11 +285,42 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         CompletableFuture<Boolean> newAck(int lSeq);
 
         void received(int requestId);
+
+        void error(int requestId, String errorMessage);
+    }
+
+
+    @Override
+    public void sendToAll(Data data) {
+        for (SendData endPointServeur : actifServer) {
+            endPointServeur.send(data);
+        }
     }
 
     @Override
-    public List<SendData> getEndPointServers() {
-        return (List<SendData>) (List<?>) endPointServers;
+    public void sendToOne(Data data) {
+        final SendData[] copy = actifServer;
+        final int length = copy.length;
+        int random = (int) (Math.random() * length);
+        for (int i = 0; i < length; i++) {
+            if (copy[(i + random) % length].send(data)) {
+                return;
+            }
+        }
+    }
+
+    @Override
+    public void sendToFirst(Data data) {
+        for (SendData endPointServeur : actifServer) {
+            if (endPointServeur.send(data)) {
+                return;
+            }
+        }
+    }
+
+    @Override
+    public SendData[] getEndPointServers() {
+        return actifServer;
     }
 
     public Data getFreeData() {
@@ -295,16 +342,16 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     }
 
     @Override
-    public void close(ServerAddress serverAddress) {
-        addRemoveServerLock.lock();
+    public void connectionLost(ServerAddress serverAddress) {
+        serverAndConnectionLock.lock();
         try {
-            final EndPointServeur remove = actifEndPoints.remove(serverAddress);
-            endPointServers.remove(remove);
-            pendingServerAddresses.remove(serverAddress);
+            actifEndPoints.remove(serverAddress);
+            actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
+            pendingServerAddresses.add(serverAddress);
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
-            addRemoveServerLock.unlock();
+            serverAndConnectionLock.unlock();
         }
     }
 

@@ -16,12 +16,17 @@ import org.globsframework.serialisation.BinWriterFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -82,7 +87,7 @@ public class GlobSingleClientImpl implements GlobSingleClient {
                         final StreamInfo streamInfo = requests.get(-streamId);
                         if (streamInfo == null) {
                             // may be closed.
-                        }else {
+                        } else {
                             final CompletableFuture<Boolean> remove = streamInfo.results().remove(requestId);
                             if (remove != null) {
                                 remove.complete(true);
@@ -90,28 +95,47 @@ public class GlobSingleClientImpl implements GlobSingleClient {
                                 throw new RuntimeException("BUG : No result found for request id " + requestId);
                             }
                         }
+                    } else if (code == CommandId.ERROR_APPLICATIVE.id || code == CommandId.ERROR_DESERIALISATION.id) {
+                        final int requestId = serializedInput.readNotNullInt();
+                        String errorMessage = serializedInput.readUtf8String();
+                        final StreamInfo streamInfo = requests.get(-streamId);
+                        if (streamInfo == null) {
+                            // may be closed.
+                        } else {
+                            final CompletableFuture<Boolean> remove = streamInfo.results().remove(requestId);
+                            if (remove != null) {
+                                remove.completeExceptionally(new RuntimeException(errorMessage));
+                            } else {
+                                throw new RuntimeException("BUG : No result found for request id " + requestId);
+                            }
+                        }
                     }
-                }
-                else {
+                } else {
                     final StreamInfo responseInfo = requests.get(streamId);
                     final int requestId = serializedInput.readNotNullInt();
                     final int dataSize = serializedInput.readNotNullInt();
                     bufferInputStreamWithLimit.limit(dataSize);
                     if (responseInfo == null) {
                         globBinReader.read(null);
+                        if (!bufferInputStreamWithLimit.readToLimit()) {
+                            throw new RuntimeException("Bug : stream not read to limit.");
+                        }
                     } else {
-                        Optional<Glob> read = null;
+                        Optional<Glob> read;
                         try {
                             read = globBinReader.read(responseInfo.receiveType());
                         } catch (Exception e) {
+                            bufferInputStreamWithLimit.readToLimit();
                             log.error("Fail to read type " + responseInfo.receiveType().getName() + " check the type or serialization.");
+                            break;
                         }
-                        if (read != null) {
-                            try {
-                                responseInfo.dataReceiver().receive(read.orElse(null));
-                            } catch (Exception e) {
-                                log.error("Error in receiver.", e);
-                            }
+                        if (!bufferInputStreamWithLimit.readToLimit()) {
+                            throw new RuntimeException("Bug : stream not read to limit.");
+                        }
+                        try {
+                            responseInfo.dataReceiver().receive(read.orElse(null));
+                        } catch (Exception e) {
+                            log.error("Error in receiver.", e);
                         }
                     }
                 }
@@ -126,46 +150,45 @@ public class GlobSingleClientImpl implements GlobSingleClient {
     }
 
     @Override
-    public Exchange connect(String path, DataReceiver dataReceiver, GlobType receiveType, Option option) {
+    public Exchange connect(String path, DataReceiver dataReceiver, GlobType receiveType, AckOption ackOption, SendOption sendOption) {
         final long streamId = this.lastStreamId.incrementAndGet();
-        Map<Integer, CompletableFuture<Boolean>> results = option == Option.NO_ACK ? Map.of() : new ConcurrentHashMap<>();
+        Map<Integer, CompletableFuture<Boolean>> results = ackOption == AckOption.NO_ACK ? Map.of() : new ConcurrentHashMap<>();
         requests.put(streamId, new StreamInfo(streamId, dataReceiver, receiveType, results));
         synchronized (serializedOutput) {
             serializedOutput.reset();
             serializedOutput.write(-streamId);
             serializedOutput.write(CommandId.NEW.id);
             serializedOutput.writeUtf8String(path);
-            serializedOutput.write(option.opt);
+            serializedOutput.write(ackOption.opt);
             try {
                 socketOutputStream.write(serializedOutput.getBuffer(), 0, serializedOutput.position());
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         }
-        return new SingleExchangeClientSide(streamId, results, option);
+        return new SingleExchangeClientSide(streamId, results, ackOption);
     }
 
     private class SingleExchangeClientSide implements Exchange {
         private final long streamId;
         private final Map<Integer, CompletableFuture<Boolean>> results;
-        private final Option option;
+        private final AckOption ackOption;
         private final AtomicInteger lastRequestId = new AtomicInteger(0);
 
-        public SingleExchangeClientSide(long streamId, Map<Integer, CompletableFuture<Boolean>> results, Option option) {
+        public SingleExchangeClientSide(long streamId, Map<Integer, CompletableFuture<Boolean>> results, AckOption ackOption) {
             this.streamId = streamId;
             this.results = results;
-            this.option = option;
+            this.ackOption = ackOption;
         }
 
         @Override
         public CompletableFuture<Boolean> send(Glob data) {
             final int requestId = lastRequestId.incrementAndGet();
             final CompletableFuture<Boolean> value;
-            if (option != Option.NO_ACK) {
+            if (ackOption != AckOption.NO_ACK) {
                 value = new CompletableFuture<>();
                 results.put(requestId, value);
-            }
-            else {
+            } else {
                 value = CompletableFuture.completedFuture(true);
             }
             synchronized (serializedOutput) {

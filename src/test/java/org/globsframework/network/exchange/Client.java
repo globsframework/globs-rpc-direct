@@ -24,7 +24,7 @@ public class Client {
         final UniformReservoir reservoir = new UniformReservoir();
         Histogram histogram = new Histogram(reservoir);
         final MyDataReceiver dataReceiver = new MyDataReceiver(histogram);
-        final Exchange connect = globSingleClient.connect("/path/call", dataReceiver, ExchangeData.TYPE, GlobSingleClient.Option.WITH_ACK_AFTER_CLIENT_CALL);
+        final Exchange connect = globSingleClient.connect("/path/call", dataReceiver, ExchangeData.TYPE, GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL, GlobClient.SendOption.SEND_TO_ALL);
 
         for (int i = 0; i < 100000; i++) {
             connect.send(ExchangeData.create("bla bla", i)).join();

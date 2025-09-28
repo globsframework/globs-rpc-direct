@@ -6,6 +6,7 @@ import org.globsframework.core.utils.serialization.BufferInputStreamWithLimit;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.DefaultSerializationInput;
 import org.globsframework.core.utils.serialization.SerializedInput;
+import org.globsframework.network.exchange.GlobClient;
 import org.globsframework.network.exchange.GlobSingleClient;
 import org.globsframework.network.exchange.GlobsServer;
 import org.globsframework.serialisation.BinReader;
@@ -98,7 +99,7 @@ public class ExchangeGlobsServer implements GlobsServer {
                 MessageReader messageReader =
                         new MessageReader(socket, binReaderFactory, binWriterFactory, clients, reader -> {
                             synchronized (this) {
-                                readers.add(reader);
+                                readers.remove(reader);
                             }
                         });
                 executorService.execute(messageReader::run);
@@ -144,7 +145,7 @@ public class ExchangeGlobsServer implements GlobsServer {
     }
 
     record OnReceiverWithType(long l, Receiver onClient, MessageReader.OnDataServer onData, GlobType receiveType,
-                              GlobSingleClient.Option opt) {
+                              GlobClient.AckOption opt) {
     }
 
 
@@ -202,7 +203,7 @@ public class ExchangeGlobsServer implements GlobsServer {
                         int dataSize = serializationInput.readNotNullInt();
                         bufferedInputStream.limit(dataSize);
                         if (onClientWithType != null) {
-                            if (onClientWithType.opt == GlobSingleClient.Option.WITH_ACK_BEFORE_READ_DATA) {
+                            if (onClientWithType.opt == GlobClient.AckOption.WITH_ACK_BEFORE_READ_DATA) {
                                 synchronized (serializationOutput) {
                                     serializationOutput.reset();
                                     serializationOutput.write(-streamId);
@@ -211,32 +212,48 @@ public class ExchangeGlobsServer implements GlobsServer {
                                     socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
                                 }
                             }
-                            Optional<Glob> read = null;
+                            Optional<Glob> read;
                             try {
                                 read = globBinReader.read(onClientWithType.receiveType());
-                                if (!bufferedInputStream.readToLimit()) {
-                                    throw new RuntimeException("Bug : stream not read to limit.");
-                                }
                             } catch (Exception e) { // it can be an IOException that we lost. But that exception will be rethrown when reading the next data.
-                                log.error("Error reading data " +
-                                          onClientWithType.receiveType().getName() + " => check if the GlobType match.", e);
+                                final String s = "Error reading data for type" +
+                                                 onClientWithType.receiveType().getName() + " (check declared/expected GlobType) " + e.getMessage();
+                                log.error(s, e);
                                 bufferedInputStream.readToLimit();
-                            }
-                            if (read != null) {
-                                try {
-                                    onClientWithType.onClient().receive(read.orElse(null));
-                                    if (onClientWithType.opt == GlobSingleClient.Option.WITH_ACK_AFTER_CLIENT_CALL) {
-                                        synchronized (serializationOutput) {
-                                            serializationOutput.reset();
-                                            serializationOutput.write(-streamId);
-                                            serializationOutput.write(CommandId.ACK.id);
-                                            serializationOutput.write(requestId);
-                                            socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
-                                        }
-                                    }
-                                } catch (Exception e) {
-                                    log.error("Error in receiver.", e);
+                                synchronized (serializationOutput) {
+                                    serializationOutput.reset();
+                                    serializationOutput.write(-streamId);
+                                    serializationOutput.write(CommandId.ERROR_DESERIALISATION.id);
+                                    serializationOutput.write(requestId);
+                                    serializationOutput.writeUtf8String(s);
+                                    socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
                                 }
+                                continue;
+                            }
+                            if (!bufferedInputStream.readToLimit()) {
+                                throw new RuntimeException("Bug : stream not read to limit.");
+                            }
+                            try {
+                                onClientWithType.onClient().receive(read.orElse(null));
+                                if (onClientWithType.opt == GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL) {
+                                    synchronized (serializationOutput) {
+                                        serializationOutput.reset();
+                                        serializationOutput.write(-streamId);
+                                        serializationOutput.write(CommandId.ACK.id);
+                                        serializationOutput.write(requestId);
+                                        socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                                    }
+                                }
+                            } catch (Exception e) {
+                                synchronized (serializationOutput) {
+                                    serializationOutput.reset();
+                                    serializationOutput.write(-streamId);
+                                    serializationOutput.write(CommandId.ERROR_APPLICATIVE.id);
+                                    serializationOutput.write(requestId);
+                                    serializationOutput.writeUtf8String(e.getMessage());
+                                    socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                                }
+                                log.error("Error in receiver.", e);
                             }
                         } else {
                             // closed to soon
@@ -248,11 +265,11 @@ public class ExchangeGlobsServer implements GlobsServer {
                     }
                 }
             } catch (Throwable e) {
+                log.error("Leave connection", e);
                 try {
                     socket.close();
                 } catch (IOException ex) {
                 }
-                throw new RuntimeException(e);
             } finally {
                 onClose.closed(this);
             }
@@ -267,11 +284,11 @@ public class ExchangeGlobsServer implements GlobsServer {
                 }
             } else if (code == CommandId.NEW.id) {
                 String path = serializationInput.readUtf8String();
-                final GlobSingleClient.Option opt = switch (serializationInput.readNotNullInt()) {
-                    case 0 -> GlobSingleClient.Option.NO_ACK;
-                    case 1 -> GlobSingleClient.Option.WITH_ACK_BEFORE_READ_DATA;
-                    case 2 -> GlobSingleClient.Option.WITH_ACK_BEFORE_CLIENT_CALL;
-                    case 3 -> GlobSingleClient.Option.WITH_ACK_AFTER_CLIENT_CALL;
+                final GlobClient.AckOption opt = switch (serializationInput.readNotNullInt()) {
+                    case 0 -> GlobClient.AckOption.NO_ACK;
+                    case 1 -> GlobClient.AckOption.WITH_ACK_BEFORE_READ_DATA;
+                    case 2 -> GlobClient.AckOption.WITH_ACK_BEFORE_CLIENT_CALL;
+                    case 3 -> GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL;
                     default ->
                             throw new IllegalStateException("Unexpected value: " + serializationInput.readNotNullInt());
                 };

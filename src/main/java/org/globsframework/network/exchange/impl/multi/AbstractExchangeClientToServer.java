@@ -5,17 +5,16 @@ import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput
 import org.globsframework.network.exchange.Exchange;
 import org.globsframework.network.exchange.impl.DataSerialisationUtils;
 
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
-class MultiExchangeClientSide implements Exchange {
+abstract class AbstractExchangeClientToServer implements Exchange {
     private final long streamId;
     private final ClientShare clientShare;
     private final GlobMultiClientImpl.AckMgt ackMgt;
     private final AtomicInteger nextRequestId = new AtomicInteger(0);
 
-    public MultiExchangeClientSide(long streamId, ClientShare clientShare, GlobMultiClientImpl.AckMgt ackMgt) {
+    public AbstractExchangeClientToServer(long streamId, ClientShare clientShare, GlobMultiClientImpl.AckMgt ackMgt) {
         this.streamId = streamId;
         this.clientShare = clientShare;
         this.ackMgt = ackMgt;
@@ -23,8 +22,8 @@ class MultiExchangeClientSide implements Exchange {
 
     @Override
     public CompletableFuture<Boolean> send(Glob data) {
-        final List<SendData> endPointServers = clientShare.getEndPointServers();
-        if (endPointServers.isEmpty()) {
+        final SendData[] endPointServers = clientShare.getEndPointServers();
+        if (endPointServers.length == 0) {
             return CompletableFuture.failedFuture(new RuntimeException("No endpoint server"));
         }
         final int requestId = nextRequestId.incrementAndGet();
@@ -35,12 +34,12 @@ class MultiExchangeClientSide implements Exchange {
         DataSerialisationUtils.serializeMessageData(data, streamId, requestId, serializedOutput, sendableData.binWriter);
         sendableData.complete();
         sendableData.incWriter();
-        for (SendData endPointServer : endPointServers) {
-            endPointServer.send(sendableData);
-        }
+        send(sendableData);
         sendableData.release();
         return value;
     }
+
+    abstract void send(Data data);
 
     @Override
     public void close() {

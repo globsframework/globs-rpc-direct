@@ -17,4 +17,9 @@ class NoAck implements GlobMultiClientImpl.AckMgt {
     @Override
     public void received(int requestId) {
     }
+
+    @Override
+    public void error(int requestId, String errorMessage) {
+
+    }
 }

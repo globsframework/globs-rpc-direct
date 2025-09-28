@@ -32,4 +32,14 @@ class AckMgtImpl implements GlobMultiClientImpl.AckMgt {
         }
         remove.complete(true);
     }
+
+    @Override
+    public void error(int requestId, String errorMessage) {
+        final CompletableFuture<Boolean> remove = results.remove(requestId);
+        if (remove == null) {
+            return;
+        }
+        remove.completeExceptionally(new RuntimeException(errorMessage));
+
+    }
 }
