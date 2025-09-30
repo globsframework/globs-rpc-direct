@@ -28,7 +28,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     private final Map<Long, ClientConnectionInfo> requests = new ConcurrentHashMap<>();
     private final Selector selector;
     private final int maxMessageSize;
-    private final List<EndPointServeur> endPointServers = new CopyOnWriteArrayList<>();
+    private final Map<ServerAddress, EndPointServeur> connecting = new ConcurrentHashMap<>();
     private final Map<ServerAddress, Endpoint> serverAddresses = new HashMap<>();
     private final Map<ServerAddress, EndPointServeur> actifEndPoints = new HashMap<>();
     private final Set<ServerAddress> pendingServerAddresses = new HashSet<>();
@@ -57,7 +57,10 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                 pendingServerAddresses.clear();
                 for (ServerAddress serverAddress : dup) {
                     try {
-                        tryAdd(serverAddress);
+                        if (!connecting.containsKey(serverAddress)) {
+                            final EndPointServeur endPointServeur = new EndPointServeur(serverAddress, this::addPendingWrite, this, this, executorService);
+                            connecting.put(serverAddress, endPointServeur);
+                        }
                     } catch (IOException e) {
                         pendingServerAddresses.add(serverAddress);
                     }
@@ -89,8 +92,12 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     }
 
     @Override
-    public void close(long streamId) {
-// on server close ?
+    public void close(long streamId) { // closed recieved from server
+        final ClientConnectionInfo clientConnectionInfo = requests.get(streamId);
+        if (clientConnectionInfo != null) {
+            clientConnectionInfo.ackMgt().close();
+            clientConnectionInfo.dataReceivedInfo().dataReceiver().close();
+        }
     }
 
     @Override
@@ -219,25 +226,6 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         }
     }
 
-    public void tryAdd(ServerAddress serverAddress) throws IOException {
-        final EndPointServeur endPointServeur = new EndPointServeur(serverAddress, this::addPendingWrite, this, this, executorService);
-
-        serverAndConnectionLock.lock();
-        try {
-            for (Map.Entry<Long, ClientConnectionInfo> longExchangeClientSideEntry : requests.entrySet()) {
-                final Data data = createConnectData(longExchangeClientSideEntry.getKey(), longExchangeClientSideEntry.getValue().path,
-                        longExchangeClientSideEntry.getValue().ackOption);
-                endPointServeur.send(data);
-                data.release();
-            }
-            endPointServers.add(endPointServeur);
-            actifEndPoints.put(serverAddress, endPointServeur);
-            actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
-        } finally {
-            serverAndConnectionLock.unlock();
-        }
-    }
-
     private Data createConnectData(Long longExchangeClientSideEntry, String longExchangeClientSideEntry1, AckOption longExchangeClientSideEntry2) {
         final Data data = getFreeData();
         data.serializedOutput.write(-longExchangeClientSideEntry);
@@ -350,6 +338,28 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
             pendingServerAddresses.add(serverAddress);
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally {
+            serverAndConnectionLock.unlock();
+        }
+    }
+
+    @Override
+    public void connectionOK(ServerAddress serverAddress, EndPointServeur endPointServeur) {
+        serverAndConnectionLock.lock();
+        try {
+            for (Map.Entry<Long, ClientConnectionInfo> longExchangeClientSideEntry : requests.entrySet()) {
+                final Data data = createConnectData(longExchangeClientSideEntry.getKey(), longExchangeClientSideEntry.getValue().path,
+                        longExchangeClientSideEntry.getValue().ackOption);
+                if (!endPointServeur.send(data)){
+                    data.release();
+                    throw new RuntimeException("Could not send data to " + serverAddress);
+                }
+                data.release();
+            }
+            connecting.remove(serverAddress);
+            pendingServerAddresses.remove(serverAddress);
+            actifEndPoints.put(serverAddress, endPointServeur);
+            actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
         } finally {
             serverAndConnectionLock.unlock();
         }

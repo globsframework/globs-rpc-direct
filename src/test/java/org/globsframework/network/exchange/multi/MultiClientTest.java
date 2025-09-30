@@ -96,6 +96,60 @@ public class MultiClientTest {
     }
 
     @Test
+    void testRemoveServer() throws IOException, InterruptedException {
+        final ExecutorService executor = Executors.newCachedThreadPool();
+        GlobsServer server1 = GlobsServer.create("localhost", 0, executor);
+        GlobsServer server2 = GlobsServer.create("localhost", 0, executor);
+        GlobsServer server3 = GlobsServer.create("localhost", 0, executor);
+
+        AtomicInteger count = new AtomicInteger(0);
+        GlobsServer.OnClient onClient = new GlobsServer.OnClient() {
+            @Override
+            public GlobsServer.Receiver onNewClient(GlobsServer.OnData onData) {
+                return new ResendReceiver(onData, count);
+            }
+        };
+        server1.onPath("/path", onClient, ExchangeData.TYPE);
+        server2.onPath("/path", onClient, ExchangeData.TYPE);
+        server3.onPath("/path", onClient, ExchangeData.TYPE);
+
+        final GlobMultiClient globMultiClient = GlobMultiClient.create();
+        GlobMultiClient.Endpoint endpoint1 = globMultiClient.add("localhost", server1.getPort());
+        GlobMultiClient.Endpoint endpoint2 = globMultiClient.add("localhost", server2.getPort());
+        GlobMultiClient.Endpoint endpoint3 = globMultiClient.add("localhost", server3.getPort());
+        final CountDataReceiver dataReceiver = new CountDataReceiver();
+        final Exchange exchange = globMultiClient.connect("/path", dataReceiver, ExchangeData.TYPE,
+                GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL, GlobClient.SendOption.SEND_TO_FIRST);
+
+        int serverCount = globMultiClient.waitForActifServer(3, 1000);
+        Assertions.assertEquals(3, serverCount);
+        final CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+            for (int i = 0; i < 10000; i++) {
+                exchange.send(ExchangeData.create("d", i)).join();
+            }
+        });
+
+        Thread.sleep(100);
+        endpoint3.unregister();
+        endpoint2.unregister();
+        future.join();
+        long until = System.currentTimeMillis() + 2000;
+        while (count.get() < 10000 && until > System.currentTimeMillis()) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+            }
+        }
+        until = System.currentTimeMillis() + 2000;
+        while (dataReceiver.count.get() < 10000 && until > System.currentTimeMillis()) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+            }
+        }
+    }
+
+    @Test
     void sendToFirst() throws IOException {
         final ExecutorService executor = Executors.newCachedThreadPool();
         GlobsServer server1 = GlobsServer.create("localhost", 0, executor);

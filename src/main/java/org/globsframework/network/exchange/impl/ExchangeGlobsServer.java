@@ -37,7 +37,7 @@ public class ExchangeGlobsServer implements GlobsServer {
     private final Map<String, ClientInfo> clients = new ConcurrentHashMap<>();
     private final ExecutorService connectionExecutorService = Executors.newSingleThreadExecutor();
     private final Executor executorService;
-    private final List<MessageReader> readers = new ArrayList<>();
+    private final Map<Integer, MessageReader> readers = new HashMap<>();
     private ServerSocket serverSocket;
     private boolean running;
 
@@ -96,14 +96,18 @@ public class ExchangeGlobsServer implements GlobsServer {
         try {
             while (running) {
                 final Socket socket = serverSocket.accept();
+                final int localPort = socket.getLocalPort();
                 MessageReader messageReader =
                         new MessageReader(socket, binReaderFactory, binWriterFactory, clients, reader -> {
                             synchronized (this) {
-                                readers.remove(reader);
+                                final MessageReader remove = readers.remove(localPort);
+                                if (remove != reader) {
+                                    log.error("Bug reader is not associated to port " + localPort);
+                                }
                             }
                         });
+                readers.put(localPort, messageReader);
                 executorService.execute(messageReader::run);
-                readers.add(messageReader);
             }
         } catch (IOException e) {
             final String msg = "Error processing connections";
@@ -130,7 +134,7 @@ public class ExchangeGlobsServer implements GlobsServer {
         }
         connectionExecutorService.shutdown();
         synchronized (this) {
-            for (MessageReader reader : readers) {
+            for (MessageReader reader : readers.values()) {
                 reader.shutdown();
             }
         }
@@ -196,7 +200,10 @@ public class ExchangeGlobsServer implements GlobsServer {
                 while (!shutdown) {
                     final long streamId = serializationInput.readNotNullLong();
                     if (streamId < 0) {
-                        manageCommand(streamId);
+                        if (!manageCommand(streamId)){
+                            log.info("Closing connection with stream " + streamId);
+
+                        }
                     } else {
                         final OnReceiverWithType onClientWithType = clients.get(streamId);
                         requestId = serializationInput.readNotNullInt();
@@ -275,13 +282,24 @@ public class ExchangeGlobsServer implements GlobsServer {
             }
         }
 
-        private void manageCommand(long streamId) {
+        private boolean manageCommand(long streamId) {
             int code = serializationInput.readNotNullInt();
             if (code == CommandId.CLOSE.id) {
+                for (OnReceiverWithType value : clients.values()) {
+                    value.onClient().closed();
+                }
+                try {
+                    socket.close();
+                } catch (IOException e) {
+                }
+                return false;
+            }
+            if (code == CommandId.CLOSE_STREAM.id) {
                 final OnReceiverWithType remove = clients.remove(-streamId);
                 if (remove != null) {
                     remove.onClient().closed();
                 }
+                return true;
             } else if (code == CommandId.NEW.id) {
                 String path = serializationInput.readUtf8String();
                 final GlobClient.AckOption opt = switch (serializationInput.readNotNullInt()) {
@@ -299,6 +317,7 @@ public class ExchangeGlobsServer implements GlobsServer {
                     clients.put(-streamId, new OnReceiverWithType(-streamId, receiver, onData, clientInfo.receiveType, opt));
                 }
             }
+            return true;
         }
 
         public void shutdown() {
@@ -339,7 +358,7 @@ public class ExchangeGlobsServer implements GlobsServer {
                 synchronized (serializationOutput) {
                     serializationOutput.reset();
                     serializationOutput.write(-streamId);
-                    serializationOutput.write(CommandId.CLOSE.id);
+                    serializationOutput.write(CommandId.CLOSE_STREAM.id);
                     try {
                         socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
                     } catch (IOException e) {

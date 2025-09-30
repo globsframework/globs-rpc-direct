@@ -4,8 +4,9 @@ public enum CommandId {
     CLOSE(1),
     ACK(2),
     NEW(3),
-    ERROR_DESERIALISATION(4),
-    ERROR_APPLICATIVE(5)
+    CLOSE_STREAM(4),
+    ERROR_DESERIALISATION(5),
+    ERROR_APPLICATIVE(6)
     ;
 
     public final short id;

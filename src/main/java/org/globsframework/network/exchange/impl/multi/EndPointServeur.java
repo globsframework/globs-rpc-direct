@@ -17,7 +17,7 @@ import java.nio.channels.SocketChannel;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 
-class EndPointServeur implements SendData, NByteBufferSerializationInput.NextBuffer {
+public class EndPointServeur implements SendData, NByteBufferSerializationInput.NextBuffer {
     private final static Logger log = LoggerFactory.getLogger(EndPointServeur.class);
     private final GlobMultiClientImpl.ServerAddress serverAddress;
     private final GlobMultiClientImpl.AddPendingWrite addPendingWrite;
@@ -59,8 +59,6 @@ class EndPointServeur implements SendData, NByteBufferSerializationInput.NextBuf
         setPendingWrite.set();
         readSelector = Selector.open();
         readSelectionKey = channel.register(readSelector, SelectionKey.OP_READ);
-        channel.finishConnect();
-        int maxReadWriteVersion = serializedInput.readNotNullInt();
         executor.execute(this::read);
     }
 
@@ -98,11 +96,15 @@ class EndPointServeur implements SendData, NByteBufferSerializationInput.NextBuf
 
     private void read() {
         try {
+            channel.finishConnect();
+            int maxReadWriteVersion = serializedInput.readNotNullInt();
+            clientShare.connectionOK(serverAddress, this);
+
             while (!shutdown) {
                 final long streamId = serializedInput.readNotNullLong();
                 if (streamId < 0) {
                     final int code = serializedInput.readNotNullInt();
-                    if (code == CommandId.CLOSE.id) {
+                    if (code == CommandId.CLOSE_STREAM.id) {
                         requestAccess.close(-streamId);
                     } else if (code == CommandId.ACK.id) {
                         final int requestId = serializedInput.readNotNullInt();

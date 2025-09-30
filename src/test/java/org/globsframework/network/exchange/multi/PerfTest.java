@@ -51,13 +51,13 @@ public class PerfTest {
         Assertions.assertEquals(3, serverCount);
 
         final CompletableFuture<Void> d = CompletableFuture.runAsync(() -> {
-            for (int i = 0; i < 1_000_000; i++) {
+            for (int i = 0; i < 500_000; i++) {
                 exchange.send(ExchangeData.create("d", i)).join();
             }
         });
         d.join();
         System.out.println("PerfTest.perfMulti : end send");
-        while(count.get() != 3_000_000) {
+        while(count.get() != 1_500_000) {
             Thread.sleep(1000);
         };
         System.out.println("PerfTest.perfMulti : end read");

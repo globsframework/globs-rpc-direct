@@ -3,6 +3,7 @@ package org.globsframework.network.exchange.impl.multi;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.network.exchange.Exchange;
+import org.globsframework.network.exchange.impl.CommandId;
 import org.globsframework.network.exchange.impl.DataSerialisationUtils;
 
 import java.util.concurrent.CompletableFuture;
@@ -46,7 +47,7 @@ abstract class AbstractExchangeClientToServer implements Exchange {
         clientShare.releaseClient(streamId);
         final Data data = clientShare.getFreeData();
         data.serializedOutput.write(-streamId);
-        data.serializedOutput.write(1);
+        data.serializedOutput.write(CommandId.CLOSE_STREAM.id);
         data.complete();
         data.incWriter();
         for (SendData endPointServeur : clientShare.getEndPointServers()) {

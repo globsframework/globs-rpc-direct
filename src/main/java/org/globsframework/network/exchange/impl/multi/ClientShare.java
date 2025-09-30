@@ -17,4 +17,6 @@ interface ClientShare {
     void releaseClient(long current);
 
     void connectionLost(GlobMultiClientImpl.ServerAddress serverAddress);
+
+    void connectionOK(GlobMultiClientImpl.ServerAddress serverAddress, EndPointServeur endPointServeur);
 }

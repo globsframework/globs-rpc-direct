@@ -77,7 +77,7 @@ public class GlobSingleClientImpl implements GlobSingleClient {
                 final long streamId = serializedInput.readNotNullLong();
                 if (streamId < 0) {
                     final int code = serializedInput.readNotNullInt();
-                    if (code == CommandId.CLOSE.id) { // close
+                    if (code == CommandId.CLOSE_STREAM.id) { // close
                         final StreamInfo streamInfo = requests.remove(-streamId);
                         if (streamInfo != null) {
                             streamInfo.dataReceiver().close();
@@ -208,7 +208,7 @@ public class GlobSingleClientImpl implements GlobSingleClient {
             synchronized (serializedOutput) {
                 serializedOutput.reset();
                 serializedOutput.write(-streamId);
-                serializedOutput.write(1);
+                serializedOutput.write(CommandId.CLOSE_STREAM.id);
                 try {
                     socketOutputStream.write(serializedOutput.getBuffer(), 0, serializedOutput.position());
                 } catch (IOException e) {
