@@ -12,6 +12,7 @@ public interface GlobMultiClient extends GlobClient  {
 
     interface Endpoint {
         void unregister();
+        void setActive();
     }
 
     static GlobMultiClient create() throws IOException {

@@ -24,7 +24,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     private final Lock serverAndConnectionLock = new ReentrantLock(); // prevent mixing adding new server and receiveing a new request
     private final Condition condition = serverAndConnectionLock.newCondition();
     private final AtomicLong lastStreamId;
-    private final Executor executorService;
+    private final ExecutorService executorService;
     private final Map<Long, ClientConnectionInfo> requests = new ConcurrentHashMap<>();
     private final Selector selector;
     private final int maxMessageSize;
@@ -34,6 +34,8 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     private final Set<ServerAddress> pendingServerAddresses = new HashSet<>();
     private final Deque<Data> freeSendableData = new ConcurrentLinkedDeque<>();
     private SendData[] actifServer = new SendData[0];
+    private volatile ServerAddress actifEndPoint;
+    private volatile boolean stop = false;
 
     public GlobMultiClientImpl(int maxMessageSize) throws IOException {
         this.maxMessageSize = maxMessageSize;
@@ -49,7 +51,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     private void connectServer() {
         serverAndConnectionLock.lock();
         try {
-            while (true) {
+            while (!stop) {
                 if (pendingServerAddresses.isEmpty()) {
                     condition.await();
                 }
@@ -131,7 +133,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
 
     void flushPendingWrite() {
         try {
-            while (true) {
+            while (!stop) {
                 final int select = selector.select();
                 if (select != 0) {
                     final Set<SelectionKey> selectionKeys = selector.selectedKeys();
@@ -201,23 +203,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
             else {
                 pendingServerAddresses.add(serverAddress);
                 condition.signalAll();
-                final Endpoint endpoint = new Endpoint() {
-                    @Override
-                    public void unregister() {
-                        serverAndConnectionLock.lock();
-                        try {
-                            serverAddresses.remove(serverAddress);
-                            pendingServerAddresses.remove(serverAddress);
-                            final EndPointServeur remove = actifEndPoints.remove(serverAddress);
-                            actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
-                            if (remove != null) {
-                                remove.shutdown();
-                            }
-                        } finally {
-                            serverAndConnectionLock.unlock();
-                        }
-                    }
-                };
+                final Endpoint endpoint = new UnregisterEndpoint(serverAddress);
                 serverAddresses.put(serverAddress, endpoint);
                 return endpoint;
             }
@@ -258,12 +244,41 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                 case SEND_TO_ALL -> new ExchangeClientToAllServer(streamId, this, ackMgt);
                 case SEND_TO_FIRST -> new ExchangeClientToFirstServer(streamId, this, ackMgt);
                 case SEND_TO_ANY -> new ExchangeClientToRandomServer(streamId, this, ackMgt);
+                case SEND_TO_ACTIVE -> new ExchangeClientToActifServer(streamId, this, ackMgt);
             };
             requests.put(streamId, new ClientConnectionInfo(dataReceivedInfo, path, ackOption, ackMgt, exchangeClientSide));
         } finally {
             serverAndConnectionLock.unlock();
         }
         return exchangeClientSide;
+    }
+
+    @Override
+    public void close() {
+        executorService.shutdown();
+        stop = true;
+        try {
+            selector.close();
+        } catch (IOException e) {
+        }
+        for (EndPointServeur pointServeur : connecting.values()) {
+            try {
+                pointServeur.shutdown();
+            } catch (Exception e) {
+            }
+        }
+        for (EndPointServeur value : actifEndPoints.values()) {
+            try {
+                value.shutdown();
+            } catch (Exception e) {
+            }
+        }
+        try {
+            serverAndConnectionLock.lock();
+            condition.signalAll();
+        } finally {
+            serverAndConnectionLock.unlock();
+        }
     }
 
     interface AckMgt {
@@ -278,32 +293,44 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     }
 
 
-    @Override
-    public void sendToAll(Data data) {
-        for (SendData endPointServeur : actifServer) {
-            endPointServeur.send(data);
+    public boolean sendToActif(Data data) {
+        final EndPointServeur endPointServeur = actifEndPoints.get(actifEndPoint);
+        if (endPointServeur == null) {
+            return false;
         }
+        return endPointServeur.send(data);
     }
 
     @Override
-    public void sendToOne(Data data) {
+    public boolean sendToAll(Data data) {
+        boolean atLesatOne = false;
+        for (SendData endPointServeur : actifServer) {
+            atLesatOne |= endPointServeur.send(data);
+        }
+        return atLesatOne;
+    }
+
+    @Override
+    public boolean sendToOne(Data data) {
         final SendData[] copy = actifServer;
         final int length = copy.length;
         int random = (int) (Math.random() * length);
         for (int i = 0; i < length; i++) {
             if (copy[(i + random) % length].send(data)) {
-                return;
+                return true;
             }
         }
+        return false;
     }
 
     @Override
-    public void sendToFirst(Data data) {
+    public boolean sendToFirst(Data data) {
         for (SendData endPointServeur : actifServer) {
             if (endPointServeur.send(data)) {
-                return;
+                return true;
             }
         }
+        return false;
     }
 
     @Override
@@ -376,6 +403,35 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         public void set() {
             selectionKey.interestOps(SelectionKey.OP_WRITE);
             selector.wakeup();
+        }
+    }
+
+    private class UnregisterEndpoint implements Endpoint {
+        private final ServerAddress serverAddress;
+
+        public UnregisterEndpoint(ServerAddress serverAddress) {
+            this.serverAddress = serverAddress;
+        }
+
+        @Override
+        public void setActive() {
+            actifEndPoint = serverAddress;
+        }
+
+        @Override
+        public void unregister() {
+            serverAndConnectionLock.lock();
+            try {
+                serverAddresses.remove(serverAddress);
+                pendingServerAddresses.remove(serverAddress);
+                final EndPointServeur remove = actifEndPoints.remove(serverAddress);
+                actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
+                if (remove != null) {
+                    remove.shutdown();
+                }
+            } finally {
+                serverAndConnectionLock.unlock();
+            }
         }
     }
 }

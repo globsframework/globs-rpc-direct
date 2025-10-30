@@ -4,11 +4,13 @@ interface ClientShare {
 
     SendData[] getEndPointServers();
 
-    void sendToAll(Data data);
+    boolean sendToAll(Data data);
 
-    void sendToOne(Data data);
+    boolean sendToOne(Data data);
 
-    void sendToFirst(Data data);
+    boolean sendToActif(Data data);
+
+    boolean sendToFirst(Data data);
 
     Data getFreeData();
 

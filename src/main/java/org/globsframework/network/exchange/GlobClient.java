@@ -6,6 +6,8 @@ import org.globsframework.core.model.Glob;
 public interface GlobClient {
     Exchange connect(String path, DataReceiver dataReceiver, GlobType receiveType, AckOption ackOption, SendOption sendOption);
 
+    void close();
+
     enum AckOption {
         NO_ACK(0),
         WITH_ACK_BEFORE_READ_DATA(1),
@@ -22,7 +24,8 @@ public interface GlobClient {
     enum SendOption {
         SEND_TO_ALL(0),
         SEND_TO_FIRST(1),
-        SEND_TO_ANY(2);
+        SEND_TO_ANY(2),
+        SEND_TO_ACTIVE(3); // ?
 
         public final int opt;
 

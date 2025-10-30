@@ -23,10 +23,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -39,12 +36,13 @@ public class GlobSingleClientImpl implements GlobSingleClient {
     private final BinReader globBinReader;
     private final ByteBufferSerializationOutput serializedOutput;
     private final BinWriter binWriter;
-    private final Executor executorService;
+    private final ExecutorService executorService;
     private final AtomicLong lastStreamId;
     private final OutputStream socketOutputStream;
     private final BufferInputStreamWithLimit bufferInputStreamWithLimit;
     private Map<Long, StreamInfo> requests = new ConcurrentHashMap<>();
     private int maxMessageSize;
+    private volatile boolean close = false;
 
     public GlobSingleClientImpl(String host, int port) throws IOException {
         this.maxMessageSize = 10 * 1024;
@@ -73,7 +71,7 @@ public class GlobSingleClientImpl implements GlobSingleClient {
             socketOutputStream.write(serializedOutput.getBuffer(), 0, serializedOutput.position());
             int maxReadWriteVersion = serializedInput.readNotNullInt();
 
-            while (true) {
+            while (!close) {
                 final long streamId = serializedInput.readNotNullLong();
                 if (streamId < 0) {
                     final int code = serializedInput.readNotNullInt();
@@ -167,6 +165,16 @@ public class GlobSingleClientImpl implements GlobSingleClient {
             }
         }
         return new SingleExchangeClientSide(streamId, results, ackOption);
+    }
+
+    @Override
+    public void close() {
+        executorService.shutdown();
+        close = true;
+        try {
+            socket.close();
+        } catch (IOException e) {
+        }
     }
 
     private class SingleExchangeClientSide implements Exchange {
