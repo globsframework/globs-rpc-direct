@@ -35,24 +35,32 @@ public class ExchangeGlobsServer implements GlobsServer {
     private final BinWriterFactory binWriterFactory;
     private int port;
     private final Map<String, ClientInfo> clients = new ConcurrentHashMap<>();
-    private final ExecutorService connectionExecutorService = Executors.newSingleThreadExecutor();
+    private final Executor connectionExecutorService;
     private final Executor executorService;
+    private final boolean closeExecutorService;
+    private final boolean closeConnectionExecutorService;
     private final Map<Integer, MessageReader> readers = new HashMap<>();
     private ServerSocket serverSocket;
     private boolean running;
 
-    public ExchangeGlobsServer(String host, int port, Executor executor) {
-        this.host = host;
-        this.port = port;
-        binReaderFactory = BinReaderFactory.create();
-        binWriterFactory = BinWriterFactory.create();
-        executorService = executor;
+    public ExchangeGlobsServer(Builder builder) {
+        this.host = builder.host;
+        this.port = builder.port;
+        binReaderFactory = builder.binReaderFactory == null ? BinReaderFactory.create() :  builder.binReaderFactory;
+        binWriterFactory = builder.binWriterFactory ==  null ? BinWriterFactory.create() :  builder.binWriterFactory;
+        executorService = builder.executor == null ? Executors.newCachedThreadPool() : builder.executor;
+        closeExecutorService = builder.executor == null;
+        connectionExecutorService = builder.connectionExecutor == null ? Executors.newSingleThreadExecutor() : builder.connectionExecutor;
+        closeConnectionExecutorService = builder.connectionExecutor == null;
     }
 
     public static class Builder {
         private final String host;
         private final int port;
         private Executor executor;
+        private Executor connectionExecutor;
+        private BinReaderFactory binReaderFactory;
+        private BinWriterFactory binWriterFactory;
 
         private Builder(String host, int port) {
             this.host = host;
@@ -63,14 +71,24 @@ public class ExchangeGlobsServer implements GlobsServer {
             return new Builder(host, port);
         }
 
+        Builder withConnectionExecutor(Executor executor) {
+            this.connectionExecutor = executor;
+            return this;
+        }
+
         public Builder with(Executor executor) {
             this.executor = executor;
             return this;
         }
 
+        public Builder withBinBuilder(BinReaderFactory binReaderFactory, BinWriterFactory binWriterFactory) {
+            this.binReaderFactory = binReaderFactory;
+            this.binWriterFactory = binWriterFactory;
+            return this;
+        }
+
         public ExchangeGlobsServer build() {
-            final ExchangeGlobsServer exchangeGlobsServer =
-                    new ExchangeGlobsServer(host, port, executor == null ? Executors.newSingleThreadExecutor() : executor);
+            final ExchangeGlobsServer exchangeGlobsServer = new ExchangeGlobsServer(this);
             exchangeGlobsServer.init();
             return exchangeGlobsServer;
         }
@@ -85,7 +103,7 @@ public class ExchangeGlobsServer implements GlobsServer {
                 port = serverSocket.getLocalPort();
             }
             running = true;
-            connectionExecutorService.submit(this::processConnections);
+            connectionExecutorService.execute(this::processConnections);
         } catch (IOException e) {
             final String msg = "Failed to initialize server";
             throw new RuntimeException(msg, e);
@@ -132,7 +150,12 @@ public class ExchangeGlobsServer implements GlobsServer {
             serverSocket.close();
         } catch (IOException e) {
         }
-        connectionExecutorService.shutdown();
+        if (closeConnectionExecutorService) {
+            ((ExecutorService) connectionExecutorService).shutdown();
+        }
+        if (closeExecutorService) {
+            ((ExecutorService) executorService).shutdown();
+        }
         synchronized (this) {
             for (MessageReader reader : readers.values()) {
                 reader.shutdown();

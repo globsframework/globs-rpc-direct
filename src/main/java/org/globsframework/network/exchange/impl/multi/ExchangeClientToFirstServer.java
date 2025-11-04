@@ -9,7 +9,7 @@ class ExchangeClientToFirstServer extends AbstractExchangeClientToServer {
     }
 
     @Override
-    void send(Data data) {
-        clientShare.sendToFirst(data);
+    boolean send(Data data) {
+        return clientShare.sendToFirst(data);
     }
 }

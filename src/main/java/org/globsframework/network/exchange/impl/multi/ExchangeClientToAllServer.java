@@ -9,7 +9,7 @@ class ExchangeClientToAllServer extends AbstractExchangeClientToServer {
     }
 
     @Override
-    void send(Data data) {
-        clientShare.sendToAll(data);
+    boolean send(Data data) {
+        return clientShare.sendToAll(data);
     }
 }

@@ -35,12 +35,14 @@ abstract class AbstractExchangeClientToServer implements Exchange {
         DataSerialisationUtils.serializeMessageData(data, streamId, requestId, serializedOutput, sendableData.binWriter);
         sendableData.complete();
         sendableData.incWriter();
-        send(sendableData);
+        if (!send(sendableData)) {
+            value.completeExceptionally(new RuntimeException("Send failed"));
+        }
         sendableData.release();
         return value;
     }
 
-    abstract void send(Data data);
+    abstract boolean send(Data data);
 
     @Override
     public void close() {

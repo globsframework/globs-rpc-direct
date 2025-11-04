@@ -8,10 +8,14 @@ import java.util.concurrent.Executor;
 
 public interface GlobsServer {
 
-    static GlobsServer create(String host, int port, Executor executor) {
+    static ExchangeGlobsServer create(String host, int port, Executor executor) {
         ExchangeGlobsServer.Builder builder = ExchangeGlobsServer.Builder.create(host, port);
         builder.with(executor);
         return builder.build();
+    }
+
+    static ExchangeGlobsServer.Builder create(String host, int port) {
+        return ExchangeGlobsServer.Builder.create(host, port);
     }
 
     int getPort();
@@ -26,6 +30,7 @@ public interface GlobsServer {
 
     interface Receiver {
         void receive(Glob data);
+
         void closed();
     }
 

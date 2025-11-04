@@ -31,11 +31,10 @@ public class Data {
         void release(Data data);
     }
 
-    Data(int maxMessageSize, OnRelease release) {
+    Data(int maxMessageSize, OnRelease release, BinWriterFactory binWriterFactory) {
         this.release = release;
         final byte[] buffer = new byte[maxMessageSize];
         serializedOutput = new ByteBufferSerializationOutput(buffer);
-        BinWriterFactory binWriterFactory = BinWriterFactory.create();
         binWriter = binWriterFactory.create(serializedOutput);
         this.byteBuffer = ByteBuffer.wrap(buffer);
     }

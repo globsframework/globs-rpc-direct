@@ -6,10 +6,13 @@ import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.LongField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.network.exchange.*;
+import org.globsframework.serialisation.BinReaderFactory;
+import org.globsframework.serialisation.BinWriterFactory;
 import org.globsframework.serialisation.model.FieldNumber;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -19,9 +22,9 @@ public class MultiClientTest {
     @Test
     public void simpleMulti() throws IOException, InterruptedException {
         final ExecutorService executor = Executors.newCachedThreadPool();
-        GlobsServer server1 = GlobsServer.create("localhost", 0, executor);
-        GlobsServer server2 = GlobsServer.create("localhost", 0, executor);
-        GlobsServer server3 = GlobsServer.create("localhost", 0, executor);
+        GlobsServer server1 = GlobsServer.create("localhost", 0).with(executor).build();
+        GlobsServer server2 = GlobsServer.create("localhost", 0).with(executor).build();
+        GlobsServer server3 = GlobsServer.create("localhost", 0).with(executor).build();
 
         AtomicInteger count = new AtomicInteger(0);
         GlobsServer.OnClient onClient = new GlobsServer.OnClient() {
@@ -35,8 +38,8 @@ public class MultiClientTest {
         server3.onPath("/path", onClient, ExchangeData.TYPE);
 
         final GlobMultiClient globMultiClient = GlobMultiClient.create();
-         GlobMultiClient.Endpoint endpoint1 = globMultiClient.add("localhost", server1.getPort());
-         GlobMultiClient.Endpoint endpoint2 = globMultiClient.add("localhost", server2.getPort());
+        GlobMultiClient.Endpoint endpoint1 = globMultiClient.add("localhost", server1.getPort());
+        GlobMultiClient.Endpoint endpoint2 = globMultiClient.add("localhost", server2.getPort());
         GlobMultiClient.Endpoint endpoint3 = globMultiClient.add("localhost", server3.getPort());
         final CountDataReceiver dataReceiver = new CountDataReceiver();
         final Exchange exchange = globMultiClient.connect("/path", dataReceiver, ExchangeData.TYPE,
@@ -85,9 +88,9 @@ public class MultiClientTest {
         Assertions.assertTrue(count.get() > 1000);
         Assertions.assertTrue(dataReceiver.count.get() > 1000);
 
-        endpoint1.unregister();
-        endpoint2.unregister();
-        endpoint3.unregister();
+        endpoint1.unregister().close();
+        endpoint2.unregister().close();
+        endpoint3.unregister().close();
 
         server1.shutdown();
         server2.shutdown();
@@ -96,16 +99,16 @@ public class MultiClientTest {
     }
 
     @Test
-    void testRemoveServer() throws IOException, InterruptedException {
-        final ExecutorService executor = Executors.newCachedThreadPool();
-        GlobsServer server1 = GlobsServer.create("localhost", 0, executor);
-        GlobsServer server2 = GlobsServer.create("localhost", 0, executor);
-        GlobsServer server3 = GlobsServer.create("localhost", 0, executor);
+    void testRemoveServer() throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        GlobsServer server1 = GlobsServer.create("localhost", 0).with(Executors.newCachedThreadPool(new ThreadFactoryImpl("server1"))).build();
+        GlobsServer server2 = GlobsServer.create("localhost", 0).with(Executors.newCachedThreadPool(new ThreadFactoryImpl("server2"))).build();
+        GlobsServer server3 = GlobsServer.create("localhost", 0).with(Executors.newCachedThreadPool(new ThreadFactoryImpl("server3"))).build();
 
         AtomicInteger count = new AtomicInteger(0);
         GlobsServer.OnClient onClient = new GlobsServer.OnClient() {
             @Override
             public GlobsServer.Receiver onNewClient(GlobsServer.OnData onData) {
+                System.out.println("MultiClientTest.onNewClient");
                 return new ResendReceiver(onData, count);
             }
         };
@@ -113,7 +116,7 @@ public class MultiClientTest {
         server2.onPath("/path", onClient, ExchangeData.TYPE);
         server3.onPath("/path", onClient, ExchangeData.TYPE);
 
-        final GlobMultiClient globMultiClient = GlobMultiClient.create();
+        final GlobMultiClient globMultiClient = GlobMultiClient.create(Executors.newCachedThreadPool(new ThreadFactoryImpl("client")), BinReaderFactory.create(), BinWriterFactory.create());
         GlobMultiClient.Endpoint endpoint1 = globMultiClient.add("localhost", server1.getPort());
         GlobMultiClient.Endpoint endpoint2 = globMultiClient.add("localhost", server2.getPort());
         GlobMultiClient.Endpoint endpoint3 = globMultiClient.add("localhost", server3.getPort());
@@ -121,18 +124,28 @@ public class MultiClientTest {
         final Exchange exchange = globMultiClient.connect("/path", dataReceiver, ExchangeData.TYPE,
                 GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL, GlobClient.SendOption.SEND_TO_FIRST);
 
-        int serverCount = globMultiClient.waitForActifServer(3, 1000);
+        int serverCount = globMultiClient.waitForActifServer(3, 2000);
         Assertions.assertEquals(3, serverCount);
         final CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
             for (int i = 0; i < 10000; i++) {
-                exchange.send(ExchangeData.create("d", i)).join();
+                try {
+                    exchange.send(ExchangeData.create("d", i)).get(1, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    System.out.println("MultiClientTest.testRemoveServer at " + i);
+                    e.printStackTrace();
+                    throw new RuntimeException(e);
+                }
             }
         });
 
         Thread.sleep(100);
-        endpoint3.unregister();
-        endpoint2.unregister();
-        future.join();
+        final Closeable unregister3 = endpoint3.unregister();
+        final Closeable unregister2 = endpoint2.unregister();
+        Thread.sleep(100);
+        unregister3.close();
+        unregister2.close();
+
+        future.get(10, TimeUnit.SECONDS);
         long until = System.currentTimeMillis() + 2000;
         while (count.get() < 10000 && until > System.currentTimeMillis()) {
             try {
@@ -147,6 +160,9 @@ public class MultiClientTest {
             } catch (InterruptedException e) {
             }
         }
+        server1.shutdown();
+        server2.shutdown();
+        server3.shutdown();
     }
 
     @Test
@@ -194,7 +210,10 @@ public class MultiClientTest {
             }
         }
         Assertions.assertEquals(1, dataReceiver.count.get());
-
+        server1.shutdown();
+        server2.shutdown();
+        server3.shutdown();
+        executor.shutdown();
     }
 
     @Test
@@ -230,6 +249,8 @@ public class MultiClientTest {
 
         Assertions.assertEquals(1, count.get());
         Assertions.assertEquals(1, dataReceiver.count.get());
+        server1.shutdown();
+        executor.shutdown();
     }
 
 
@@ -247,8 +268,7 @@ public class MultiClientTest {
                         count.incrementAndGet();
                         if (data.get(ExchangeData.id) == 1L) {
                             onData.onData(UnexpectedType.TYPE.instantiate().set(UnexpectedType.id, 1L));
-                        }
-                        else {
+                        } else {
                             onData.onData(data);
                         }
                     }
@@ -274,6 +294,8 @@ public class MultiClientTest {
         exchange.send(ExchangeData.create("sdf", 2)).join();
         Assertions.assertEquals(4, count.get());
         Assertions.assertEquals(2, dataReceiver.count.get());
+        server1.shutdown();
+        executor.shutdown();
     }
 
     private static class ResendReceiver implements GlobsServer.Receiver {
@@ -299,6 +321,7 @@ public class MultiClientTest {
 
     private static class CountDataReceiver implements GlobClient.DataReceiver {
         AtomicInteger count = new AtomicInteger(0);
+
         @Override
         public void receive(Glob glob) {
             count.incrementAndGet();
@@ -319,6 +342,20 @@ public class MultiClientTest {
             TYPE = typeBuilder.unCompleteType();
             id = typeBuilder.declareLongField("id", FieldNumber.create(1));
             typeBuilder.complete();
+        }
+    }
+
+    private static class ThreadFactoryImpl implements ThreadFactory {
+        private final ThreadGroup threadGroup;
+        private final AtomicInteger threadNumber = new AtomicInteger(1);
+
+        private ThreadFactoryImpl(String name) {
+            threadGroup = new ThreadGroup(name);
+        }
+
+        @Override
+        public Thread newThread(Runnable r) {
+            return new Thread(threadGroup, r, threadGroup.getName() + "-" + threadNumber.incrementAndGet());
         }
     }
 }

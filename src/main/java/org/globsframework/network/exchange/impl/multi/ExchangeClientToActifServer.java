@@ -9,7 +9,7 @@ class ExchangeClientToActifServer extends AbstractExchangeClientToServer {
     }
 
     @Override
-    void send(Data data) {
-        clientShare.sendToActif(data);
+    boolean send(Data data) {
+        return clientShare.sendToActif(data);
     }
 }

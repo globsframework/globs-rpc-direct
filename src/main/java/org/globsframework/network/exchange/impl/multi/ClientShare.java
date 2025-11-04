@@ -1,6 +1,6 @@
 package org.globsframework.network.exchange.impl.multi;
 
-interface ClientShare {
+public interface ClientShare {
 
     SendData[] getEndPointServers();
 

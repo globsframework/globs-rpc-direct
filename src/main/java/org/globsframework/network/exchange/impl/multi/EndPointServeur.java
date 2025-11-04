@@ -34,13 +34,11 @@ public class EndPointServeur implements SendData, NByteBufferSerializationInput.
     private volatile boolean shutdown;
 
     public EndPointServeur(GlobMultiClientImpl.ServerAddress serverAddress, GlobMultiClientImpl.AddPendingWrite addPendingWrite,
-                           ClientShare clientShare,
-                           RequestAccess requestAccess, Executor executor) throws IOException {
+                           ClientShare clientShare, RequestAccess requestAccess, Executor executor, BinReaderFactory binReaderFactory) throws IOException {
         this.serverAddress = serverAddress;
         this.addPendingWrite = addPendingWrite;
         this.clientShare = clientShare;
         this.requestAccess = requestAccess;
-        BinReaderFactory binReaderFactory = BinReaderFactory.create();
         channel = SocketChannel.open();
         channel.configureBlocking(false);
         channel.connect(new InetSocketAddress(serverAddress.host(), serverAddress.port()));
@@ -84,7 +82,7 @@ public class EndPointServeur implements SendData, NByteBufferSerializationInput.
         }
     }
 
-    interface RequestAccess {
+    public interface RequestAccess {
         void ack(long streamId, int requestId);
 
         void close(long streamId);
@@ -165,6 +163,7 @@ public class EndPointServeur implements SendData, NByteBufferSerializationInput.
                 data.byteBuffer.mark();
                 channel.write(data.byteBuffer);
             } catch (IOException e) {
+//                System.out.println( "EndPointServeur.send error");
                 log.error("Error writing data", e);
                 data.byteBuffer.reset();
                 data.release();
@@ -173,7 +172,8 @@ public class EndPointServeur implements SendData, NByteBufferSerializationInput.
                 return false;
             }
             if (data.byteBuffer.hasRemaining()) {
-                log.debug("EndPointServeur.send has remaining");
+//                System.out.println("EndPointServeur.send has remaining");
+//                log.debug("EndPointServeur.send has remaining");
                 pendingWrite.add(data);
                 setPendingWrite.set();
                 data.byteBuffer.reset();
@@ -191,6 +191,9 @@ public class EndPointServeur implements SendData, NByteBufferSerializationInput.
             channel.close();
         } catch (IOException e) {
         }
-        readSelector.wakeup();
+        try {
+            readSelector.close();
+        } catch (IOException e) {
+        }
     }
 }

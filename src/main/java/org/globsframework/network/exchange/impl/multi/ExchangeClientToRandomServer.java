@@ -9,7 +9,7 @@ class ExchangeClientToRandomServer extends AbstractExchangeClientToServer {
     }
 
     @Override
-    void send(Data data) {
-        clientShare.sendToOne(data);
+    boolean send(Data data) {
+        return clientShare.sendToOne(data);
     }
 }

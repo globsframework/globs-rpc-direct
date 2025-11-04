@@ -4,14 +4,19 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.network.exchange.Exchange;
 import org.globsframework.network.exchange.GlobMultiClient;
 import org.globsframework.network.exchange.impl.CommandId;
+import org.globsframework.serialisation.BinReaderFactory;
+import org.globsframework.serialisation.BinWriterFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -21,31 +26,35 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPointServeur.RequestAccess {
     private static final Logger log = LoggerFactory.getLogger(GlobMultiClientImpl.class);
-    private final Lock serverAndConnectionLock = new ReentrantLock(); // prevent mixing adding new server and receiveing a new request
+    private final Lock serverAndConnectionLock = new ReentrantLock(); // prevent mixing adding new server and receiving a new request
     private final Condition condition = serverAndConnectionLock.newCondition();
     private final AtomicLong lastStreamId;
-    private final ExecutorService executorService;
+    private final Executor executorService;
     private final Map<Long, ClientConnectionInfo> requests = new ConcurrentHashMap<>();
     private final Selector selector;
     private final int maxMessageSize;
+    private final BinWriterFactory binWriterFactory;
     private final Map<ServerAddress, EndPointServeur> connecting = new ConcurrentHashMap<>();
     private final Map<ServerAddress, Endpoint> serverAddresses = new HashMap<>();
     private final Map<ServerAddress, EndPointServeur> actifEndPoints = new HashMap<>();
     private final Set<ServerAddress> pendingServerAddresses = new HashSet<>();
     private final Deque<Data> freeSendableData = new ConcurrentLinkedDeque<>();
+    private final BinReaderFactory binReaderFactory;
     private SendData[] actifServer = new SendData[0];
     private volatile ServerAddress actifEndPoint;
     private volatile boolean stop = false;
 
-    public GlobMultiClientImpl(int maxMessageSize) throws IOException {
+    public GlobMultiClientImpl(int maxMessageSize, Executor executor, BinReaderFactory binReaderFactory, BinWriterFactory binWriterFactory) throws IOException {
         this.maxMessageSize = maxMessageSize;
+        this.binWriterFactory = binWriterFactory;
         lastStreamId = new AtomicLong(0);
-        freeSendableData.add(new Data(maxMessageSize, this::release));
-        freeSendableData.add(new Data(maxMessageSize, this::release));
-        executorService = Executors.newThreadPerTaskExecutor(Executors.defaultThreadFactory());
+        freeSendableData.add(new Data(maxMessageSize, this::release, binWriterFactory));
+        freeSendableData.add(new Data(maxMessageSize, this::release, binWriterFactory));
+        executorService = executor;
         selector = Selector.open();
         executorService.execute(this::flushPendingWrite);
         executorService.execute(this::connectServer);
+        this.binReaderFactory = binReaderFactory;
     }
 
     private void connectServer() {
@@ -60,7 +69,8 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                 for (ServerAddress serverAddress : dup) {
                     try {
                         if (!connecting.containsKey(serverAddress)) {
-                            final EndPointServeur endPointServeur = new EndPointServeur(serverAddress, this::addPendingWrite, this, this, executorService);
+                            final EndPointServeur endPointServeur = new EndPointServeur(serverAddress, this::addPendingWrite,
+                                    this, this, executorService, binReaderFactory);
                             connecting.put(serverAddress, endPointServeur);
                         }
                     } catch (IOException e) {
@@ -111,7 +121,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         return null;
     }
 
-    interface AddPendingWrite {
+    public interface AddPendingWrite {
         SetPendingWrite add(SocketChannel channel, PendingWrite pendingWrite);
     }
 
@@ -255,7 +265,6 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
 
     @Override
     public void close() {
-        executorService.shutdown();
         stop = true;
         try {
             selector.close();
@@ -341,7 +350,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     public Data getFreeData() {
         Data sendableData = freeSendableData.poll();
         if (sendableData == null) {
-            sendableData = new Data(maxMessageSize, this::release);
+            sendableData = new Data(maxMessageSize, this::release, binWriterFactory);
         }
         sendableData.reset();
         return sendableData;
@@ -419,18 +428,27 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         }
 
         @Override
-        public void unregister() {
+        public Closeable unregister() {
             serverAndConnectionLock.lock();
+            final EndPointServeur remove;
             try {
                 serverAddresses.remove(serverAddress);
                 pendingServerAddresses.remove(serverAddress);
-                final EndPointServeur remove = actifEndPoints.remove(serverAddress);
+                remove = actifEndPoints.remove(serverAddress);
                 actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
-                if (remove != null) {
-                    remove.shutdown();
-                }
             } finally {
                 serverAndConnectionLock.unlock();
+            }
+            if (remove != null) {
+                try { //TODO => give the hand to client.
+                    Thread.sleep(Duration.of(1, ChronoUnit.SECONDS));
+                } catch (InterruptedException e) {
+                }
+                // shutdown too soon
+                return remove::shutdown;
+            }
+            else {
+                return () -> {};
             }
         }
     }
