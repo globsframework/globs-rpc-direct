@@ -440,11 +440,6 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                 serverAndConnectionLock.unlock();
             }
             if (remove != null) {
-                try { //TODO => give the hand to client.
-                    Thread.sleep(Duration.of(1, ChronoUnit.SECONDS));
-                } catch (InterruptedException e) {
-                }
-                // shutdown too soon
                 return remove::shutdown;
             }
             else {
