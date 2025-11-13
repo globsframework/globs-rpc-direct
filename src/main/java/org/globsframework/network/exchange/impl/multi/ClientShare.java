@@ -1,5 +1,7 @@
 package org.globsframework.network.exchange.impl.multi;
 
+import java.nio.ByteBuffer;
+
 public interface ClientShare {
 
     SendData[] getEndPointServers();
@@ -20,5 +22,9 @@ public interface ClientShare {
 
     void connectionLost(GlobMultiClientImpl.ServerAddress serverAddress);
 
-    void connectionOK(GlobMultiClientImpl.ServerAddress serverAddress, EndPointServeur endPointServeur);
+    void connectionOK(GlobMultiClientImpl.ServerAddress serverAddress, EndPointServer endPointServer);
+
+    ByteBuffer getFreeDirectBuffer();
+
+    void releaseDirectBuffer(ByteBuffer readByteBuffer);
 }

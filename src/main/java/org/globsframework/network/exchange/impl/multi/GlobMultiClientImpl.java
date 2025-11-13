@@ -11,12 +11,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
-import java.time.Duration;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -24,8 +23,9 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPointServeur.RequestAccess {
+public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPointServer.RequestAccess {
     private static final Logger log = LoggerFactory.getLogger(GlobMultiClientImpl.class);
+    public static final int READ_BUFFER_SIZE = 10 * 1024;
     private final Lock serverAndConnectionLock = new ReentrantLock(); // prevent mixing adding new server and receiving a new request
     private final Condition condition = serverAndConnectionLock.newCondition();
     private final AtomicLong lastStreamId;
@@ -34,11 +34,12 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     private final Selector selector;
     private final int maxMessageSize;
     private final BinWriterFactory binWriterFactory;
-    private final Map<ServerAddress, EndPointServeur> connecting = new ConcurrentHashMap<>();
+    private final Map<ServerAddress, EndPointServer> connecting = new ConcurrentHashMap<>();
     private final Map<ServerAddress, Endpoint> serverAddresses = new HashMap<>();
-    private final Map<ServerAddress, EndPointServeur> actifEndPoints = new HashMap<>();
+    private final Map<ServerAddress, EndPointServer> actifEndPoints = new HashMap<>();
     private final Set<ServerAddress> pendingServerAddresses = new HashSet<>();
     private final Deque<Data> freeSendableData = new ConcurrentLinkedDeque<>();
+    private final Deque<ByteBuffer> freeReadBuffers = new ConcurrentLinkedDeque<>();
     private final BinReaderFactory binReaderFactory;
     private SendData[] actifServer = new SendData[0];
     private volatile ServerAddress actifEndPoint;
@@ -50,6 +51,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         lastStreamId = new AtomicLong(0);
         freeSendableData.add(new Data(maxMessageSize, this::release, binWriterFactory));
         freeSendableData.add(new Data(maxMessageSize, this::release, binWriterFactory));
+        freeReadBuffers.add(ByteBuffer.allocateDirect(READ_BUFFER_SIZE));
         executorService = executor;
         selector = Selector.open();
         executorService.execute(this::flushPendingWrite);
@@ -67,15 +69,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                 Set<ServerAddress> dup = new HashSet<>(pendingServerAddresses);
                 pendingServerAddresses.clear();
                 for (ServerAddress serverAddress : dup) {
-                    try {
-                        if (!connecting.containsKey(serverAddress)) {
-                            final EndPointServeur endPointServeur = new EndPointServeur(serverAddress, this::addPendingWrite,
-                                    this, this, executorService, binReaderFactory);
-                            connecting.put(serverAddress, endPointServeur);
-                        }
-                    } catch (IOException e) {
-                        pendingServerAddresses.add(serverAddress);
-                    }
+                    tryConnect(serverAddress);
                 }
                 condition.signalAll();
                 condition.await(5, TimeUnit.SECONDS); // prevent looping top frequently on the pending server not responding
@@ -84,6 +78,20 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
             Thread.currentThread().interrupt();
         } finally {
             serverAndConnectionLock.unlock();
+        }
+    }
+
+    private boolean tryConnect(ServerAddress serverAddress) {
+        try {
+            if (!connecting.containsKey(serverAddress)) {
+                final EndPointServer endPointServer = new EndPointServer(serverAddress, this::addPendingWrite,
+                        this, this, executorService, binReaderFactory);
+                connecting.put(serverAddress, endPointServer);
+            }
+            return true;
+        } catch (IOException e) {
+            pendingServerAddresses.add(serverAddress);
+            return false;
         }
     }
 
@@ -161,13 +169,13 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                                     break;
                                 }
                                 if (current.buffer().hasRemaining()) {
-                                    log.debug("GlobMultiClientImpl.flushPendingWrite has remaining" );
+                                    log.debug("GlobMultiClientImpl.flushPendingWrite has remaining");
                                     break;
                                 }
                                 current.data().release();
                                 current = p.pendingWrite().releaseCurrentAndGetNext();
                                 if (current == null) {
-                                    log.debug("GlobMultiClientImpl.flushPendingWrite no more remaining" );
+                                    log.debug("GlobMultiClientImpl.flushPendingWrite no more remaining");
                                     selectionKey.interestOps(0);
                                     break;
                                 }
@@ -178,8 +186,9 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                 }
             }
         } catch (IOException e) {
-            log.error("Error in flushPending", e);
-            throw new RuntimeException(e);
+            if (!stop) {
+                log.error("Error in flushPending " + e.getMessage(), e);
+            }
         }
     }
 
@@ -209,15 +218,17 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         try {
             if (serverAddresses.containsKey(serverAddress)) {
                 return serverAddresses.get(serverAddress);
-            }
-            else {
-                pendingServerAddresses.add(serverAddress);
-                condition.signalAll();
+            } else {
+                if (!tryConnect(serverAddress)) {
+                    if (pendingServerAddresses.size() == 1) {
+                        condition.signalAll();
+                    }
+                }
                 final Endpoint endpoint = new UnregisterEndpoint(serverAddress);
                 serverAddresses.put(serverAddress, endpoint);
                 return endpoint;
             }
-        }finally {
+        } finally {
             serverAndConnectionLock.unlock();
         }
     }
@@ -270,13 +281,13 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
             selector.close();
         } catch (IOException e) {
         }
-        for (EndPointServeur pointServeur : connecting.values()) {
+        for (EndPointServer pointServeur : connecting.values()) {
             try {
                 pointServeur.shutdown();
             } catch (Exception e) {
             }
         }
-        for (EndPointServeur value : actifEndPoints.values()) {
+        for (EndPointServer value : actifEndPoints.values()) {
             try {
                 value.shutdown();
             } catch (Exception e) {
@@ -303,11 +314,11 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
 
 
     public boolean sendToActif(Data data) {
-        final EndPointServeur endPointServeur = actifEndPoints.get(actifEndPoint);
-        if (endPointServeur == null) {
+        final EndPointServer endPointServer = actifEndPoints.get(actifEndPoint);
+        if (endPointServer == null) {
             return false;
         }
-        return endPointServeur.send(data);
+        return endPointServer.send(data);
     }
 
     @Override
@@ -370,7 +381,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         serverAndConnectionLock.lock();
         try {
             actifEndPoints.remove(serverAddress);
-            actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
+            actifServer = actifEndPoints.values().toArray(new EndPointServer[0]);
             pendingServerAddresses.add(serverAddress);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -380,13 +391,13 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     }
 
     @Override
-    public void connectionOK(ServerAddress serverAddress, EndPointServeur endPointServeur) {
+    public void connectionOK(ServerAddress serverAddress, EndPointServer endPointServer) {
         serverAndConnectionLock.lock();
         try {
             for (Map.Entry<Long, ClientConnectionInfo> longExchangeClientSideEntry : requests.entrySet()) {
                 final Data data = createConnectData(longExchangeClientSideEntry.getKey(), longExchangeClientSideEntry.getValue().path,
                         longExchangeClientSideEntry.getValue().ackOption);
-                if (!endPointServeur.send(data)){
+                if (!endPointServer.send(data)) {
                     data.release();
                     throw new RuntimeException("Could not send data to " + serverAddress);
                 }
@@ -394,11 +405,23 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
             }
             connecting.remove(serverAddress);
             pendingServerAddresses.remove(serverAddress);
-            actifEndPoints.put(serverAddress, endPointServeur);
-            actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
+            actifEndPoints.put(serverAddress, endPointServer);
+            actifServer = actifEndPoints.values().toArray(new EndPointServer[0]);
         } finally {
             serverAndConnectionLock.unlock();
         }
+    }
+
+    public ByteBuffer getFreeDirectBuffer() {
+        final ByteBuffer poll = freeReadBuffers.poll();
+        if (poll != null) {
+            return poll;
+        }
+        return ByteBuffer.allocateDirect(READ_BUFFER_SIZE);
+    }
+
+    public void releaseDirectBuffer(ByteBuffer readByteBuffer) {
+        freeReadBuffers.offer(readByteBuffer);
     }
 
     private class SetPendingWriteForSelector implements SetPendingWrite {
@@ -430,20 +453,20 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         @Override
         public Closeable unregister() {
             serverAndConnectionLock.lock();
-            final EndPointServeur remove;
+            final EndPointServer remove;
             try {
                 serverAddresses.remove(serverAddress);
                 pendingServerAddresses.remove(serverAddress);
                 remove = actifEndPoints.remove(serverAddress);
-                actifServer = actifEndPoints.values().toArray(new EndPointServeur[0]);
+                actifServer = actifEndPoints.values().toArray(new EndPointServer[0]);
             } finally {
                 serverAndConnectionLock.unlock();
             }
             if (remove != null) {
                 return remove::shutdown;
-            }
-            else {
-                return () -> {};
+            } else {
+                return () -> {
+                };
             }
         }
     }

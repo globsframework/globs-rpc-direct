@@ -17,8 +17,8 @@ import java.nio.channels.SocketChannel;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 
-public class EndPointServeur implements SendData, NByteBufferSerializationInput.NextBuffer {
-    private final static Logger log = LoggerFactory.getLogger(EndPointServeur.class);
+public class EndPointServer implements SendData, NByteBufferSerializationInput.NextBuffer {
+    private final static Logger log = LoggerFactory.getLogger(EndPointServer.class);
     private final GlobMultiClientImpl.ServerAddress serverAddress;
     private final GlobMultiClientImpl.AddPendingWrite addPendingWrite;
     private final ClientShare clientShare;
@@ -33,8 +33,8 @@ public class EndPointServeur implements SendData, NByteBufferSerializationInput.
     private final GlobMultiClientImpl.SetPendingWrite setPendingWrite;
     private volatile boolean shutdown;
 
-    public EndPointServeur(GlobMultiClientImpl.ServerAddress serverAddress, GlobMultiClientImpl.AddPendingWrite addPendingWrite,
-                           ClientShare clientShare, RequestAccess requestAccess, Executor executor, BinReaderFactory binReaderFactory) throws IOException {
+    public EndPointServer(GlobMultiClientImpl.ServerAddress serverAddress, GlobMultiClientImpl.AddPendingWrite addPendingWrite,
+                          ClientShare clientShare, RequestAccess requestAccess, Executor executor, BinReaderFactory binReaderFactory) throws IOException {
         this.serverAddress = serverAddress;
         this.addPendingWrite = addPendingWrite;
         this.clientShare = clientShare;
@@ -43,10 +43,6 @@ public class EndPointServeur implements SendData, NByteBufferSerializationInput.
         channel.configureBlocking(false);
         channel.connect(new InetSocketAddress(serverAddress.host(), serverAddress.port()));
         channel.socket().setTcpNoDelay(true);
-        readByteBuffer = ByteBuffer.allocateDirect(10 * 1024);
-        readByteBuffer.limit(0);
-        serializedInput = new NByteBufferSerializationInput(readByteBuffer, this);
-        globBinReader = binReaderFactory.createGlobBinReader(serializedInput);
 
         Data data = clientShare.getFreeData();
         data.incWriter();
@@ -57,6 +53,10 @@ public class EndPointServeur implements SendData, NByteBufferSerializationInput.
         setPendingWrite.set();
         readSelector = Selector.open();
         readSelectionKey = channel.register(readSelector, SelectionKey.OP_READ);
+        readByteBuffer = clientShare.getFreeDirectBuffer();
+        readByteBuffer.limit(0);
+        serializedInput = new NByteBufferSerializationInput(readByteBuffer, this, null, 100);
+        globBinReader = binReaderFactory.createGlobBinReader(serializedInput);
         executor.execute(this::read);
     }
 
@@ -150,6 +150,9 @@ public class EndPointServeur implements SendData, NByteBufferSerializationInput.
             }
             clientShare.connectionLost(serverAddress);
             log.error("GlobClient read error", throwable);
+        }
+        finally {
+            clientShare.releaseDirectBuffer(readByteBuffer);
         }
     }
 

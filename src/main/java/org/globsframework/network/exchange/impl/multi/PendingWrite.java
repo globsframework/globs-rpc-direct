@@ -34,7 +34,6 @@ class PendingWrite {
     }
 
     void close() {
-
     }
 
     synchronized public void add(Data data) {
