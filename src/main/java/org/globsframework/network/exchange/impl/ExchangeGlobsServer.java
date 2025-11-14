@@ -114,6 +114,7 @@ public class ExchangeGlobsServer implements GlobsServer {
         try {
             while (running) {
                 final Socket socket = serverSocket.accept();
+                socket.setTcpNoDelay(true);
                 final int localPort = socket.getLocalPort();
                 MessageReader messageReader =
                         new MessageReader(socket, binReaderFactory, binWriterFactory, clients, reader -> {
@@ -361,8 +362,8 @@ public class ExchangeGlobsServer implements GlobsServer {
 
             @Override
             public void onData(Glob data) {
-                requestId++;
                 synchronized (serializationOutput) {
+                    requestId++;
                     DataSerialisationUtils.serializeMessageData(data, streamId, requestId, serializationOutput, globBinWriter);
                     try {
                         socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
