@@ -47,7 +47,7 @@ public class MultiClientTest {
 
         int serverCount = globMultiClient.waitForActifServer(3, 1000);
         Assertions.assertEquals(3, serverCount);
-        exchange.send(ExchangeData.create("d", 1)).join();
+        exchange.send(ExchangeData.create("d", 1, System.nanoTime())).join();
         long until = System.currentTimeMillis() + 2000;
         while (count.get() < 3 && until > System.currentTimeMillis()) {
             try {
@@ -67,7 +67,7 @@ public class MultiClientTest {
 
         final CompletableFuture<Void> d = CompletableFuture.runAsync(() -> {
             for (int i = 0; i < 1000; i++) {
-                exchange.send(ExchangeData.create("d", i)).join();
+                exchange.send(ExchangeData.create("d", i, System.nanoTime())).join();
                 try {
                     Thread.sleep(0, 300_000);
                 } catch (InterruptedException e) {
@@ -129,7 +129,7 @@ public class MultiClientTest {
         final CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
             for (int i = 0; i < 10000; i++) {
                 try {
-                    exchange.send(ExchangeData.create("d", i)).get(1, TimeUnit.SECONDS);
+                    exchange.send(ExchangeData.create("d", i, System.nanoTime())).get(1, TimeUnit.SECONDS);
                 } catch (Exception e) {
                     System.out.println("MultiClientTest.testRemoveServer at " + i);
                     e.printStackTrace();
@@ -193,7 +193,7 @@ public class MultiClientTest {
 
         int serverCount = globMultiClient.waitForActifServer(3, 1000);
         Assertions.assertEquals(3, serverCount);
-        exchange.send(ExchangeData.create("d", 1)).join();
+        exchange.send(ExchangeData.create("d", 1, System.nanoTime())).join();
         long until = System.currentTimeMillis() + 2000;
         while (count.get() < 1 && until > System.currentTimeMillis()) {
             try {
@@ -239,13 +239,13 @@ public class MultiClientTest {
         try {
             exchange.send(UnexpectedType.TYPE.instantiate().set(UnexpectedType.id, 1L)).get();
         } catch (ExecutionException e) {
-            Assertions.assertEquals("Error reading data for typeExchange (check declared/expected GlobType) For id unexpected type 8", e.getCause().getMessage());
+            Assertions.assertTrue(e.getCause().getMessage().startsWith("Error reading data for typeExchange (check declared/expected GlobType) For id unexpected type 8"));
         }
 
         Assertions.assertEquals(0, count.get());
         Assertions.assertEquals(0, dataReceiver.count.get());
 
-        exchange.send(ExchangeData.create("d", 1)).join();
+        exchange.send(ExchangeData.create("d", 1, System.nanoTime())).join();
 
         Assertions.assertEquals(1, count.get());
         Assertions.assertEquals(1, dataReceiver.count.get());
@@ -288,10 +288,10 @@ public class MultiClientTest {
 
         int serverCount = globMultiClient.waitForActifServer(1, 1000);
         Assertions.assertEquals(1, serverCount);
-        exchange.send(ExchangeData.create("sdf", 1)).join();
-        exchange.send(ExchangeData.create("sdf", 2)).join();
-        exchange.send(ExchangeData.create("sdf", 1)).join();
-        exchange.send(ExchangeData.create("sdf", 2)).join();
+        exchange.send(ExchangeData.create("sdf", 1, System.nanoTime())).join();
+        exchange.send(ExchangeData.create("sdf", 2, System.nanoTime())).join();
+        exchange.send(ExchangeData.create("sdf", 1, System.nanoTime())).join();
+        exchange.send(ExchangeData.create("sdf", 2, System.nanoTime())).join();
         Assertions.assertEquals(4, count.get());
         Assertions.assertEquals(2, dataReceiver.count.get());
         server1.shutdown();

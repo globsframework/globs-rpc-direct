@@ -52,7 +52,7 @@ public class PerfTest {
 
         final CompletableFuture<Void> d = CompletableFuture.runAsync(() -> {
             for (int i = 0; i < 500_000; i++) {
-                exchange.send(ExchangeData.create("d", i)).join();
+                exchange.send(ExchangeData.create("d", i, System.nanoTime())).join();
             }
         });
         d.join();

@@ -16,7 +16,7 @@ import org.globsframework.serialisation.model.FieldNumber;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
-public class Client {
+public class ClientSend {
 
     public static void main(String[] args) throws IOException, InterruptedException {
         final Glob options = ParseCommandLine.parse(Option.TYPE, args);
@@ -26,16 +26,21 @@ public class Client {
         final MyDataReceiver dataReceiver = new MyDataReceiver(histogram);
         final Exchange connect = globSingleClient.connect("/path/call", dataReceiver, ExchangeData.TYPE, GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL, GlobClient.SendOption.SEND_TO_ALL);
 
-        for (int i = 0; i < 100000; i++) {
-            connect.send(ExchangeData.create("bla bla", i)).join();
+        for (int i = 0; i < 100; i++) {
+            connect.send(ExchangeData.create("bla bla", i, System.nanoTime())).join();
         }
         Thread.sleep(1000);
         dump(histogram);
 
         final Histogram histogram1 = new Histogram(reservoir);
         dataReceiver.setHistogram(histogram1);
-        for (int i = 0; i < 1000; i++) {
-            connect.send(ExchangeData.create("bla bla", i)).join();
+        for (int i = 0; i < 100000; i++) {
+            final long startAt = System.nanoTime();
+            connect.send(ExchangeData.create("bla bla", i, startAt)).join();
+            final long endAt = System.nanoTime();
+            if (TimeUnit.NANOSECONDS.toMillis(endAt - startAt) > 1) {
+                System.out.println("long delay of " + TimeUnit.NANOSECONDS.toMicros(endAt - startAt) + "us");
+            }
         }
         Thread.sleep(1000);
         dump(histogram1);
@@ -73,11 +78,11 @@ public class Client {
             typeBuilder.complete();
         }
 
-        public static Glob create(String data, int id) {
+        public static Glob create(String data, int id, long value) {
             return TYPE.instantiate()
                     .set(DATA, data)
                     .set(ExchangeData.id, id)
-                    .set(sendAtNS, System.nanoTime());
+                    .set(sendAtNS, value);
         }
     }
 

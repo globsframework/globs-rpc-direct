@@ -72,7 +72,9 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                     tryConnect(serverAddress);
                 }
                 condition.signalAll();
-                condition.await(5, TimeUnit.SECONDS); // prevent looping top frequently on the pending server not responding
+                if (!stop) {
+                    condition.await(5, TimeUnit.SECONDS); // prevent looping top frequently on the pending server not responding
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -239,7 +241,16 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
         data.serializedOutput.write(CommandId.NEW.id);
         data.serializedOutput.writeUtf8String(longExchangeClientSideEntry1);
         data.serializedOutput.write(longExchangeClientSideEntry2.opt);
-        data.complete();
+        data.complete(-1, -1);
+        data.incWriter();
+        return data;
+    }
+
+    private Data closeConnectData() {
+        final Data data = getFreeData();
+        data.serializedOutput.write(-1);
+        data.serializedOutput.write(CommandId.CLOSE.id);
+        data.complete(-1, -1);
         data.incWriter();
         return data;
     }
@@ -277,6 +288,10 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     @Override
     public void close() {
         stop = true;
+        final Data data = closeConnectData();
+        for (SendData sendData : actifServer) {
+            sendData.send(data);
+        }
         try {
             selector.close();
         } catch (IOException e) {

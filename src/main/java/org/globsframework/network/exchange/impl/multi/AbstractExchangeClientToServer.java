@@ -33,7 +33,7 @@ abstract class AbstractExchangeClientToServer implements Exchange {
         final ByteBufferSerializationOutput serializedOutput = sendableData.serializedOutput;
 
         DataSerialisationUtils.serializeMessageData(data, streamId, requestId, serializedOutput, sendableData.binWriter);
-        sendableData.complete();
+        sendableData.complete(streamId, requestId);
         sendableData.incWriter();
         if (!send(sendableData)) {
             value.completeExceptionally(new RuntimeException("Send failed"));
@@ -50,7 +50,7 @@ abstract class AbstractExchangeClientToServer implements Exchange {
         final Data data = clientShare.getFreeData();
         data.serializedOutput.write(-streamId);
         data.serializedOutput.write(CommandId.CLOSE_STREAM.id);
-        data.complete();
+        data.complete(-1, -1);
         data.incWriter();
         for (SendData endPointServeur : clientShare.getEndPointServers()) {
             endPointServeur.send(data);

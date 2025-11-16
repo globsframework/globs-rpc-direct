@@ -13,12 +13,16 @@ public class Data {
     public final OnRelease release;
     public final ByteBufferSerializationOutput serializedOutput;
     public final BinWriter binWriter;
+    public long streamId;
+    public int requestId;
 
     public void reset() {
         serializedOutput.reset();
     }
 
-    public void complete() {
+    public void complete(long streamId, int requestId) {
+        this.streamId = streamId;
+        this.requestId = requestId;
         byteBuffer.position(0);
         byteBuffer.limit(serializedOutput.position());
     }

@@ -7,10 +7,13 @@ import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.model.Glob;
 
+import java.util.concurrent.Executors;
+
 public class Server {
     public static void main(String[] args) throws InterruptedException {
         final Glob option = ParseCommandLine.parse(Option.TYPE, args);
-        GlobsServer server = GlobsServer.create("localhost", option.get(Option.port, 13_000), Runnable::run);
+        GlobsServer server = GlobsServer.create("localhost", option.get(Option.port, 13_000),
+                Executors.newCachedThreadPool());
         server.onPath("/path/call", new GlobsServer.OnClient() {
             @Override
             public GlobsServer.Receiver onNewClient(GlobsServer.OnData onData) {
@@ -26,7 +29,7 @@ public class Server {
                     }
                 };
             }
-        }, Client.ExchangeData.TYPE);
+        }, ClientSend.ExchangeData.TYPE);
         Thread.currentThread().join();
     }
 

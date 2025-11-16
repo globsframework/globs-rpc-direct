@@ -13,7 +13,7 @@ import org.globsframework.core.model.Glob;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
-public class MultiClient {
+public class MultiClientSend {
 
     public static void main(String[] args) throws IOException, InterruptedException {
         final Glob options = ParseCommandLine.parse(Option.TYPE, args);
@@ -23,21 +23,25 @@ public class MultiClient {
         for (int i = 0; i < port.length; i++) {
             globClient.add(host.length == 0 ? "localhost" : host[i], Integer.parseInt(port[i]));
         }
-        final UniformReservoir reservoir = new UniformReservoir();
-        Histogram histogram = new Histogram(reservoir);
+        Histogram histogram = new Histogram(new UniformReservoir());
         final MyDataReceiver dataReceiver = new MyDataReceiver(histogram);
         final Exchange connect = globClient.connect("/path/call", dataReceiver, ExchangeData.TYPE, GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL, GlobClient.SendOption.SEND_TO_ALL);
 
-        for (int i = 0; i < 100000; i++) {
-            connect.send(ExchangeData.create("bla bla", i)).join();
+        for (int i = 0; i < 100; i++) {
+            connect.send(ExchangeData.create("bla bla", i, System.nanoTime())).join();
         }
         Thread.sleep(1000);
         dump(histogram);
 
-        final Histogram histogram1 = new Histogram(reservoir);
+        final Histogram histogram1 = new Histogram(new UniformReservoir());
         dataReceiver.setHistogram(histogram1);
-        for (int i = 0; i < 1000; i++) {
-            connect.send(ExchangeData.create("bla bla", i)).join();
+        for (int i = 0; i < 10000; i++) {
+            final long startAt = System.nanoTime();
+            connect.send(ExchangeData.create("bla bla", i, startAt)).join();
+            final long endAt = System.nanoTime();
+            if (TimeUnit.NANOSECONDS.toMillis(endAt - startAt) > 1) {
+                System.out.println("long delay of " + TimeUnit.NANOSECONDS.toMicros(endAt - startAt) + "us");
+            }
         }
         Thread.sleep(1000);
         dump(histogram1);

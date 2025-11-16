@@ -27,10 +27,10 @@ public class ExchangeData {
         typeBuilder.complete();
     }
 
-    public static Glob create(String data, int id) {
+    public static Glob create(String data, int id, long createdAt) {
         return TYPE.instantiate()
                 .set(DATA, data)
                 .set(ExchangeData.id, id)
-                .set(sendAtNS, System.nanoTime());
+                .set(sendAtNS, createdAt);
     }
 }
