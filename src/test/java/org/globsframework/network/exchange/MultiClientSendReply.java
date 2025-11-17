@@ -31,6 +31,7 @@ public class MultiClientSendReply {
         for (int i = 0; i < port.length; i++) {
             globClient.add(host.length == 0 ? "localhost" : host[i], Integer.parseInt(port[i]));
         }
+        globClient.waitForActifServer(1, 1000);
         Map<Integer, CompletableFuture<Glob>> send = new ConcurrentHashMap<>();
         final MyDataReceiver dataReceiver = new MyDataReceiver(send);
         final Exchange connect = globClient.connect("/path/call", dataReceiver, ExchangeData.TYPE, GlobClient.AckOption.NO_ACK,

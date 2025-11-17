@@ -22,13 +22,16 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class ExchangeGlobsServer implements GlobsServer {
+public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
     private static final Logger log = LoggerFactory.getLogger(ExchangeGlobsServer.class);
+    public static final int DEFAULT_MESSAGE_SIZE = 10 * 1024;
     private final String host;
     private final BinReaderFactory binReaderFactory;
     private final BinWriterFactory binWriterFactory;
@@ -39,6 +42,7 @@ public class ExchangeGlobsServer implements GlobsServer {
     private final boolean closeExecutorService;
     private final boolean closeConnectionExecutorService;
     private final Map<Integer, MessageReader> readers = new HashMap<>();
+    private final Deque<ResponseData> responseDataDeque = new ConcurrentLinkedDeque<>();
     private ServerSocket serverSocket;
     private boolean running;
 
@@ -51,6 +55,22 @@ public class ExchangeGlobsServer implements GlobsServer {
         closeExecutorService = builder.executor == null;
         connectionExecutorService = builder.connectionExecutor == null ? Executors.newSingleThreadExecutor() : builder.connectionExecutor;
         closeConnectionExecutorService = builder.connectionExecutor == null;
+        responseDataDeque.add(new ResponseData(binWriterFactory, DEFAULT_MESSAGE_SIZE));
+        responseDataDeque.add(new ResponseData(binWriterFactory, DEFAULT_MESSAGE_SIZE));
+    }
+
+    @Override
+    public ResponseData getResponseData() {
+        final ResponseData poll = responseDataDeque.poll();
+        if (poll != null) {
+            return poll;
+        }
+        return new ResponseData(binWriterFactory, DEFAULT_MESSAGE_SIZE);
+    }
+
+    @Override
+    public void release(ResponseData responseData) {
+        responseDataDeque.add(responseData);
     }
 
     public static class Builder {
@@ -123,7 +143,7 @@ public class ExchangeGlobsServer implements GlobsServer {
                                     log.error("Bug reader is not associated to port " + localPort);
                                 }
                             }
-                        });
+                        }, this);
                 readers.put(localPort, messageReader);
                 executorService.execute(messageReader::run);
             }
@@ -175,39 +195,34 @@ public class ExchangeGlobsServer implements GlobsServer {
                               GlobClient.AckOption opt) {
     }
 
-
     static class MessageReader {
         private final Map<String, ClientInfo> clientInfoMap;
         private final Map<Long, OnReceiverWithType> clients = new HashMap<>();
         private final Socket socket;
         private final OnClose onClose;
+        private final BufferAccessor bufferAccessor;
         private final BinReader globBinReader;
-        private final BinWriter globBinWriter;
         //        private final GlobsCache globsCache;
         private final SerializedInput serializationInput;
-        private final ByteBufferSerializationOutput serializationOutput;
         private final OutputStream socketOutputStream;
         private final BufferInputStreamWithLimit bufferedInputStream;
-        private final int maxMessageSize;
         private int requestId = 0;
         private volatile boolean shutdown = false;
 
         public MessageReader(Socket socket, BinReaderFactory binReader, BinWriterFactory binWriter,
-                             Map<String, ClientInfo> pathToClient, OnClose onClose) throws IOException {
-            maxMessageSize = 10 * 1024;
+                             Map<String, ClientInfo> pathToClient, OnClose onClose, BufferAccessor bufferAccessor) throws IOException {
             this.socket = socket;
             this.onClose = onClose;
+            this.bufferAccessor = bufferAccessor;
             socket.setTcpNoDelay(true);
             InputStream inputStream = socket.getInputStream();
             socketOutputStream = socket.getOutputStream();
             this.clientInfoMap = pathToClient;
             this.bufferedInputStream = new BufferInputStreamWithLimit(inputStream);
             serializationInput = new DefaultSerializationInput(this.bufferedInputStream);
-            serializationOutput = new ByteBufferSerializationOutput(new byte[maxMessageSize]);
 //            globsCache = new DefaultGlobsCache(100);
 //            globBinReader = binReader.createGlobBinReader(globType -> globsCache.newGlob(globType, requestId), serializationInput);
             globBinReader = binReader.createGlobBinReader(GlobType::instantiate, serializationInput);
-            this.globBinWriter = binWriter.create(serializationOutput);
         }
 
         interface OnClose {
@@ -216,9 +231,14 @@ public class ExchangeGlobsServer implements GlobsServer {
 
         void run() {
             try {
-                serializationOutput.reset();
-                serializationOutput.write(1); // version
-                socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                {
+                    final ResponseData responseData = bufferAccessor.getResponseData();
+                    final ByteBufferSerializationOutput serializationOutput = responseData.serializationOutput;
+                    serializationOutput.reset();
+                    serializationOutput.write(1); // version
+                    socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                    bufferAccessor.release(responseData);
+                }
                 int version = serializationInput.readNotNullInt();
                 String clientId = serializationInput.readUtf8String();
                 while (!shutdown) {
@@ -232,20 +252,21 @@ public class ExchangeGlobsServer implements GlobsServer {
                         final OnReceiverWithType onClientWithType = clients.get(streamId);
                         requestId = serializationInput.readNotNullInt();
                         if (log.isDebugEnabled()) {
-                            log.debug("Received request " + requestId + " for stream " + streamId  + " " + clientId + " after "
+                            log.debug("Received request " + requestId + " for stream " + streamId + " " + clientId + " after "
                                       + TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - startWait) + " us");
                         }
                         int dataSize = serializationInput.readNotNullInt();
                         bufferedInputStream.limit(dataSize);
                         if (onClientWithType != null) {
                             if (onClientWithType.opt == GlobClient.AckOption.WITH_ACK_BEFORE_READ_DATA) {
-                                synchronized (serializationOutput) {
-                                    serializationOutput.reset();
-                                    serializationOutput.write(-streamId);
-                                    serializationOutput.write(CommandId.ACK.id);
-                                    serializationOutput.write(requestId);
-                                    socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
-                                }
+                                final ResponseData responseData = bufferAccessor.getResponseData();
+                                final ByteBufferSerializationOutput serializationOutput = responseData.serializationOutput;
+                                serializationOutput.reset();
+                                serializationOutput.write(-streamId);
+                                serializationOutput.write(CommandId.ACK.id);
+                                serializationOutput.write(requestId);
+                                socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                                bufferAccessor.release(responseData);
                             }
                             Optional<Glob> read;
                             try {
@@ -253,17 +274,18 @@ public class ExchangeGlobsServer implements GlobsServer {
                             } catch (
                                     Exception e) { // it can be an IOException that we lost. But that exception will be rethrown when reading the next data.
                                 final String s = "Error reading data for type" +
-                                                 onClientWithType.receiveType().getName() + " (check declared/expected GlobType) " + e.getMessage()  + " " + clientId;
+                                                 onClientWithType.receiveType().getName() + " (check declared/expected GlobType) " + e.getMessage() + " " + clientId;
                                 log.error(s, e);
                                 bufferedInputStream.readToLimit();
-                                synchronized (serializationOutput) {
-                                    serializationOutput.reset();
-                                    serializationOutput.write(-streamId);
-                                    serializationOutput.write(CommandId.ERROR_DESERIALISATION.id);
-                                    serializationOutput.write(requestId);
-                                    serializationOutput.writeUtf8String(s);
-                                    socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
-                                }
+                                final ResponseData responseData = bufferAccessor.getResponseData();
+                                final ByteBufferSerializationOutput serializationOutput = responseData.serializationOutput;
+                                serializationOutput.reset();
+                                serializationOutput.write(-streamId);
+                                serializationOutput.write(CommandId.ERROR_DESERIALISATION.id);
+                                serializationOutput.write(requestId);
+                                serializationOutput.writeUtf8String(s);
+                                socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                                bufferAccessor.release(responseData);
                                 continue;
                             }
                             if (!bufferedInputStream.readToLimit()) {
@@ -275,23 +297,25 @@ public class ExchangeGlobsServer implements GlobsServer {
                                 }
                                 onClientWithType.onClient().receive(read.orElse(null));
                                 if (onClientWithType.opt == GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL) {
-                                    synchronized (serializationOutput) {
-                                        serializationOutput.reset();
-                                        serializationOutput.write(-streamId);
-                                        serializationOutput.write(CommandId.ACK.id);
-                                        serializationOutput.write(requestId);
-                                        socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
-                                    }
-                                }
-                            } catch (Exception e) {
-                                synchronized (serializationOutput) {
+                                    final ResponseData responseData = bufferAccessor.getResponseData();
+                                    final ByteBufferSerializationOutput serializationOutput = responseData.serializationOutput;
                                     serializationOutput.reset();
                                     serializationOutput.write(-streamId);
-                                    serializationOutput.write(CommandId.ERROR_APPLICATIVE.id);
+                                    serializationOutput.write(CommandId.ACK.id);
                                     serializationOutput.write(requestId);
-                                    serializationOutput.writeUtf8String(e.getMessage());
                                     socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                                    bufferAccessor.release(responseData);
                                 }
+                            } catch (Exception e) {
+                                final ResponseData responseData = bufferAccessor.getResponseData();
+                                final ByteBufferSerializationOutput serializationOutput = responseData.serializationOutput;
+                                serializationOutput.reset();
+                                serializationOutput.write(-streamId);
+                                serializationOutput.write(CommandId.ERROR_APPLICATIVE.id);
+                                serializationOutput.write(requestId);
+                                serializationOutput.writeUtf8String(e.getMessage());
+                                socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                                bufferAccessor.release(responseData);
                                 log.error("Error in receiver " + clientId, e);
                             }
                         } else {
@@ -364,7 +388,7 @@ public class ExchangeGlobsServer implements GlobsServer {
         private class OnDataServer implements OnData {
             private final long streamId;
             private final String clientId;
-            private int requestId;
+            private AtomicInteger requestId = new AtomicInteger();
 
             public OnDataServer(long streamId, String clientId) {
                 this.streamId = streamId;
@@ -374,18 +398,19 @@ public class ExchangeGlobsServer implements GlobsServer {
             @Override
             public void onData(Glob data) {
                 long start = System.nanoTime();
-                synchronized (serializationOutput) {
-                    requestId++;
-                    DataSerialisationUtils.serializeMessageData(data, streamId, requestId, serializationOutput, globBinWriter);
-                    try {
-                        socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
-                        if (log.isDebugEnabled()) {
-                            log.debug("Response sent for request " + requestId + " and stream " + streamId + " in " +
-                                      TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - start) + " us " + clientId);
-                        }
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
+                final ResponseData responseData = bufferAccessor.getResponseData();
+                final ByteBufferSerializationOutput serializationOutput = responseData.serializationOutput;
+                int req = requestId.incrementAndGet();
+                DataSerialisationUtils.serializeMessageData(data, streamId, req, serializationOutput, responseData.globBinWriter);
+                try {
+                    socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                    if (log.isDebugEnabled()) {
+                        log.debug("Response sent for request " + requestId + " and stream " + streamId + " in " +
+                                  TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - start) + " us " + clientId);
                     }
+                    bufferAccessor.release(responseData);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
                 }
             }
 
@@ -395,16 +420,27 @@ public class ExchangeGlobsServer implements GlobsServer {
                 if (remove == null) {
                     log.warn("Client " + streamId + " has already been closed");
                 }
-                synchronized (serializationOutput) {
-                    serializationOutput.reset();
-                    serializationOutput.write(-streamId);
-                    serializationOutput.write(CommandId.CLOSE_STREAM.id);
-                    try {
-                        socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
-                    } catch (IOException e) {
-                    }
+                final ResponseData responseData = bufferAccessor.getResponseData();
+                final ByteBufferSerializationOutput serializationOutput = responseData.serializationOutput;
+                serializationOutput.reset();
+                serializationOutput.write(-streamId);
+                serializationOutput.write(CommandId.CLOSE_STREAM.id);
+                try {
+                    socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
+                } catch (IOException e) {
                 }
+                bufferAccessor.release(responseData);
             }
+        }
+    }
+
+    public static class ResponseData {
+        private final ByteBufferSerializationOutput serializationOutput;
+        private final BinWriter globBinWriter;
+
+        public ResponseData(BinWriterFactory binWriter, int maxMessageSize) {
+            serializationOutput = new ByteBufferSerializationOutput(new byte[maxMessageSize]);
+            globBinWriter = binWriter.create(serializationOutput);
         }
     }
 }

@@ -29,7 +29,7 @@ public class Server {
                     }
                 };
             }
-        }, ClientSend.ExchangeData.TYPE);
+        }, ExchangeData.TYPE);
         Thread.currentThread().join();
     }
 

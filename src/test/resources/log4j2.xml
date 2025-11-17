@@ -4,15 +4,15 @@
         <RandomAccessFile name="toFile" filename="logs/rpc-${sys:NAME:-app}.log">
             <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
         </RandomAccessFile>
-    </Appenders>
-<!--    <Appenders>-->
-<!--        <Console name="Console" target="SYSTEM_OUT">-->
-<!--            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>-->
-<!--        </Console>-->
 <!--    </Appenders>-->
+<!--    <Appenders>-->
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+        </Console>
+    </Appenders>
     <Loggers>
-        <AsyncRoot level="debug">
-            <AppenderRef ref="toFile"/>
+        <AsyncRoot level="info">
+            <AppenderRef ref="Console"/>
         </AsyncRoot>
     </Loggers>
 </Configuration>

@@ -55,7 +55,6 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
         data.complete(-1, -1);
         pendingWrite.add(data);
         setPendingWrite = this.addPendingWrite.add(channel, pendingWrite);
-        setPendingWrite.set();
         readSelector = Selector.open();
         readSelectionKey = channel.register(readSelector, SelectionKey.OP_READ);
         readByteBuffer = clientShare.getFreeDirectBuffer();
@@ -105,6 +104,7 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
     private void read() {
         try {
             channel.finishConnect();
+            setPendingWrite.set();
             int maxReadWriteVersion = serializedInput.readNotNullInt();
             clientShare.connectionOK(serverAddress, this);
 
@@ -175,7 +175,7 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
         }
     }
 
-    synchronized public boolean send(Data data) {
+    public boolean send(Data data) {
         if (!channel.isConnected()){
             return false;
         }
