@@ -12,6 +12,8 @@ import org.globsframework.serialisation.model.FieldNumber;
 public class ExchangeData {
     public static final GlobType TYPE;
 
+    public static final IntegerField groupId;
+
     public static final IntegerField id;
 
     public static final StringField DATA;
@@ -21,6 +23,7 @@ public class ExchangeData {
     static {
         final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("Exchange");
         TYPE = typeBuilder.unCompleteType();
+        groupId = typeBuilder.declareIntegerField("groupId", FieldNumber.create(4));
         id = typeBuilder.declareIntegerField("id", FieldNumber.create(1));
         DATA = typeBuilder.declareStringField("data", FieldNumber.create(2));
         sendAtNS = typeBuilder.declareLongField("updatedAt", FieldNumber.create(3));
@@ -33,4 +36,13 @@ public class ExchangeData {
                 .set(ExchangeData.id, id)
                 .set(sendAtNS, createdAt);
     }
+
+    public static Glob create(String data, int id, long createdAt, int groupId) {
+        return TYPE.instantiate()
+                .set(ExchangeData.groupId, groupId)
+                .set(DATA, data)
+                .set(ExchangeData.id, id)
+                .set(sendAtNS, createdAt);
+    }
+
 }

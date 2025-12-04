@@ -72,8 +72,8 @@ public class MultiClientSendReply {
 
     private static void loop(Map<Integer, CompletableFuture<Glob>> send, Exchange connect, int coefficient) {
         final Histogram histogram = new Histogram(new UniformReservoir(10000));
-        final int end = 10000 * (coefficient + 1);
-        for (int i = 10000 * coefficient; i < end; i++) {
+        final int end = 100000 * (coefficient + 1);
+        for (int i = 100000 * coefficient; i < end; i++) {
             final long startAt = System.nanoTime();
             final CompletableFuture<Glob> value = new CompletableFuture<>();
             send.put(i, value);

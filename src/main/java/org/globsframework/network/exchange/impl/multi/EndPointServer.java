@@ -2,6 +2,7 @@ package org.globsframework.network.exchange.impl.multi;
 
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.utils.serialization.NByteBufferSerializationInput;
+import org.globsframework.core.utils.serialization.SerializedInput;
 import org.globsframework.network.exchange.impl.CommandId;
 import org.globsframework.serialisation.BinReader;
 import org.globsframework.serialisation.BinReaderFactory;
@@ -60,7 +61,7 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
         readByteBuffer = clientShare.getFreeDirectBuffer();
         readByteBuffer.limit(0);
         serializedInput = new NByteBufferSerializationInput(readByteBuffer, this, null, 100);
-        globBinReader = binReaderFactory.createGlobBinReader(serializedInput);
+        globBinReader = binReaderFactory.createFromStream((SerializedInput) serializedInput);
         executor.execute(this::read);
     }
 
@@ -140,7 +141,7 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
                     if (responseInfo == null) {
                         globBinReader.read(null);
                     } else {
-                        Optional<Glob> read = null;
+                        Glob read = null;
                         try {
                             read = globBinReader.read(responseInfo.receiveType());
                         } catch (Exception e) {
@@ -152,7 +153,7 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
                                 if (log.isDebugEnabled()) {
                                     log.debug("Data read " + serverAddress + ", propagate request " + requestId + " for stream " + streamId  + "  " + clientUUID);
                                 }
-                                responseInfo.dataReceiver().receive(read.orElse(null));
+                                responseInfo.dataReceiver().receive(read);
                             } catch (Exception e) {
                                 log.error("Error in receiver.", e);
                             }

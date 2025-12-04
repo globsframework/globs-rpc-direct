@@ -8,10 +8,8 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.IntegerField;
-import org.globsframework.core.metamodel.fields.LongField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
-import org.globsframework.serialisation.model.FieldNumber;
 
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;

@@ -10,7 +10,7 @@ import java.util.Base64;
 
 public class Dump {
     public static void main(String[] args) {
-        dump("AAAAAAAAAAEAAEBiAAAAKwAAAAIAAAAmAACkwAAAAE4AAAAHYmxhIGJsYQAAAGgAAOhdsemUfgAAAAM=");
+        dump("AAAAAAAAAAEAAHZ6AAAAKwAAAAIAAAAmAAC3CAAAAE4AAAAHYmxhIGJsYQAAAGgAAS6znM5kZAAAAAM=");
 
         dump("AAAAAAAAAAEAAEBjAAAAKwAAAAIAAAAmAABWngAAAE4AAAAHYmxhIGJsYQAAAGgAAOhdsiGrmAAAAAM=");
 
@@ -21,7 +21,7 @@ public class Dump {
         SerializedInput serializedInput = SerializedInputOutputFactory.init(decode);
 
         BinReaderFactory binReader = BinReaderFactory.create();
-        BinReader globBinReader = binReader.createGlobBinReader(GlobType::instantiate, serializedInput);
+        BinReader globBinReader = binReader.createFromStream(serializedInput);
 
         System.out.println("streamId=" + serializedInput.readNotNullLong());
         System.out.println("requestId=" + serializedInput.readNotNullInt());

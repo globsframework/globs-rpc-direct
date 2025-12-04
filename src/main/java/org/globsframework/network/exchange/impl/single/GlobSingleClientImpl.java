@@ -22,8 +22,10 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -58,7 +60,7 @@ public class GlobSingleClientImpl implements GlobSingleClient {
         socketOutputStream = socket.getOutputStream();
         bufferInputStreamWithLimit = new BufferInputStreamWithLimit(inputStream);
         serializedInput = new DefaultSerializationInput(bufferInputStreamWithLimit);
-        globBinReader = binReaderFactory.createGlobBinReader(serializedInput);
+        globBinReader = binReaderFactory.create().createFromStream(serializedInput);
         serializedOutput = new ByteBufferSerializationOutput(new byte[maxMessageSize]);
         binWriter = binWriterFactory.create(serializedOutput);
         executorService = Executors.newSingleThreadExecutor();
@@ -119,7 +121,7 @@ public class GlobSingleClientImpl implements GlobSingleClient {
                             throw new RuntimeException("Bug : stream not read to limit.");
                         }
                     } else {
-                        Optional<Glob> read;
+                        Glob read;
                         try {
                             read = globBinReader.read(responseInfo.receiveType());
                         } catch (Exception e) {
@@ -131,7 +133,7 @@ public class GlobSingleClientImpl implements GlobSingleClient {
                             throw new RuntimeException("Bug : stream not read to limit.");
                         }
                         try {
-                            responseInfo.dataReceiver().receive(read.orElse(null));
+                            responseInfo.dataReceiver().receive(read);
                         } catch (Exception e) {
                             log.error("Error in receiver.", e);
                         }

@@ -2,6 +2,7 @@ package org.globsframework.network.exchange.impl;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.cache.DefaultGlobsCache;
 import org.globsframework.core.utils.serialization.BufferInputStreamWithLimit;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.DefaultSerializationInput;
@@ -221,8 +222,7 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
             this.bufferedInputStream = new BufferInputStreamWithLimit(inputStream);
             serializationInput = new DefaultSerializationInput(this.bufferedInputStream);
 //            globsCache = new DefaultGlobsCache(100);
-//            globBinReader = binReader.createGlobBinReader(globType -> globsCache.newGlob(globType, requestId), serializationInput);
-            globBinReader = binReader.createGlobBinReader(GlobType::instantiate, serializationInput);
+            globBinReader = binReader.createFromStream(serializationInput);
         }
 
         interface OnClose {
@@ -268,7 +268,7 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
                                 socketOutputStream.write(serializationOutput.getBuffer(), 0, serializationOutput.position());
                                 bufferAccessor.release(responseData);
                             }
-                            Optional<Glob> read;
+                            Glob read;
                             try {
                                 read = globBinReader.read(onClientWithType.receiveType());
                             } catch (
@@ -295,7 +295,7 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
                                 if (log.isDebugEnabled()) {
                                     log.debug("Request fully read " + requestId + " for stream " + streamId + " " + clientId);
                                 }
-                                onClientWithType.onClient().receive(read.orElse(null));
+                                onClientWithType.onClient().receive(read);
                                 if (onClientWithType.opt == GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL) {
                                     final ResponseData responseData = bufferAccessor.getResponseData();
                                     final ByteBufferSerializationOutput serializationOutput = responseData.serializationOutput;

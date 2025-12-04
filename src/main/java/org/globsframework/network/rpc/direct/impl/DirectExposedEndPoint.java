@@ -117,7 +117,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
             serializationInput = new DefaultSerializationInput(new BufferedInputStream(inputStream));
             serializationOutput = new ByteBufferSerializationOutput(outputStream);
             globsCache = new DefaultGlobsCache(100);
-            globBinReader = binReader.createGlobBinReader(globType -> globsCache.newGlob(globType, requestId), serializationInput);
+            globBinReader = binReader.create(globType -> globsCache.newGlob(globType, requestId), serializationInput);
             this.globBinWriter = binWriter.create(serializationOutput);
         }
 
@@ -141,7 +141,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
                             serializationOutput.flush();
                         }
                     } else {
-                        final Glob receivedMessage = globBinReader.read(receiver.type).orElse(null);
+                        final Glob receivedMessage = globBinReader.read(receiver.type);
                         // put GlobInstantiator in Scoped Value ??
                         final CompletableFuture<Glob> receive = receiver.receiver.receive(receivedMessage,
                                 globType -> globsCache.newGlob(globType, callRequestId));

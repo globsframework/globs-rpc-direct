@@ -84,7 +84,7 @@ public class AsyncSimpleClient implements AutoCloseable {
         final InputStream inputStream = socket.getInputStream();
         final OutputStream outputStream = socket.getOutputStream();
         serializedInput = new DefaultSerializationInput(new BufferedInputStream(inputStream));
-        globBinReader = binReaderFactory.createGlobBinReader(serializedInput);
+        globBinReader = binReaderFactory.createFromStream(serializedInput);
         bufferedOutputStream = new BufferedOutputStream(outputStream);
         serializedOutput = new DefaultSerializationOutput(bufferedOutputStream);
         binWriter = binWriterFactory.create(serializedOutput);
@@ -117,7 +117,7 @@ public class AsyncSimpleClient implements AutoCloseable {
                     throw new RuntimeException("Bug : no response found for order " + readOrder);
                 } else {
                     try {
-                        final Glob value = globBinReader.read(responseInfo.resultType).orElse(null);
+                        final Glob value = globBinReader.read(responseInfo.resultType);
                         responseInfo.result.complete(value);
                     } catch (Exception e) {
                         responseInfo.result.completeExceptionally(e);
