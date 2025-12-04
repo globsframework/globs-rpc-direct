@@ -6,7 +6,7 @@
     <packaging>jar</packaging>
     <artifactId>globs-rpc-direct</artifactId>
     <name>Glob simple RPC call using blocking socket</name>
-    <version>4.13.0</version>
+    <version>4.14-SNAPSHOT</version>
 
     <developers>
         <developer>
@@ -37,7 +37,7 @@
         <connection>scm:git:git@github.com:globsframework/globs-rpc-direct</connection>
         <developerConnection>scm:git:git@github.com:globsframework/globs-rpc-direct</developerConnection>
         <url>https://github.com/globsframework/globs-rpc-direct</url>
-      <tag>4.13.0</tag>
+      <tag>HEAD</tag>
   </scm>
 
     <profiles>
