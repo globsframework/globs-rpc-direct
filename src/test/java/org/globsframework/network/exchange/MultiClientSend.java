@@ -27,6 +27,8 @@ public class MultiClientSend {
         final MyDataReceiver dataReceiver = new MyDataReceiver(histogram);
         final Exchange connect = globClient.connect("/path/call", dataReceiver, ExchangeData.TYPE, GlobClient.AckOption.WITH_ACK_AFTER_CLIENT_CALL, GlobClient.SendOption.SEND_TO_ALL);
 
+        Thread.sleep(1000);
+
         for (int i = 0; i < 100; i++) {
             connect.send(ExchangeData.create("bla bla", i, System.nanoTime())).join();
         }

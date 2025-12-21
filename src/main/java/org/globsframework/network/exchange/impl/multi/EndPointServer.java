@@ -15,7 +15,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -49,12 +48,6 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
         channel.connect(new InetSocketAddress(serverAddress.host(), serverAddress.port()));
         channel.socket().setTcpNoDelay(true);
 
-        Data data = clientShare.getFreeData();
-        data.incWriter();
-        data.serializedOutput.write(1);
-        data.serializedOutput.writeUtf8String(clientUUID);
-        data.complete(-1, -1);
-        pendingWrite.add(data);
         setPendingWrite = this.addPendingWrite.add(channel, pendingWrite);
         readSelector = Selector.open();
         readSelectionKey = channel.register(readSelector, SelectionKey.OP_READ);
@@ -70,10 +63,13 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
         while (true) {
             try {
                 long start = System.nanoTime();
-                final int select = readSelector.select(1000);
+                if (!channel.isConnected()) {
+                    readSelectionKey.interestOps(SelectionKey.OP_CONNECT);
+                }
+                final int select = readSelector.select();
                 if (log.isDebugEnabled()) {
                     final long micros = TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - start);
-                    log.debug("refill unlock " + select + " " + ( micros > 10000 ? TimeUnit.MICROSECONDS.toMillis(micros) + "ms" :  micros + "us")  + "  " + clientUUID);
+                    log.debug("refill unlock " + select + " " + (micros > 10000 ? TimeUnit.MICROSECONDS.toMillis(micros) + "ms" : micros + "us") + "  " + clientUUID);
                 }
                 if (select > 0) {
                     readSelector.selectedKeys().clear();
@@ -87,6 +83,13 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
                         if (readByteBuffer.hasRemaining()) {
                             return readByteBuffer;
                         }
+                    } else if (readSelectionKey.isConnectable()) {
+                        channel.finishConnect();
+                        readSelectionKey.interestOps(SelectionKey.OP_READ);
+                    }
+                } else {
+                    if (!channel.isConnected()) {
+                        channel.finishConnect();
                     }
                 }
             } catch (IOException e) {
@@ -107,17 +110,14 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
 
     private void read() {
         try {
-            channel.finishConnect();
-            setPendingWrite.set();
-            int maxReadWriteVersion = serializedInput.readNotNullInt();
-            clientShare.connectionOK(serverAddress, this);
+            connectAndSendFirstAck();
 
             while (!shutdown) {
                 final long streamId = serializedInput.readNotNullLong();
                 if (streamId < 0) {
                     final int code = serializedInput.readNotNullInt();
                     if (log.isDebugEnabled()) {
-                        log.debug("Received command " + code + " for stream " + streamId  + "  " + clientUUID);
+                        log.debug("Received command " + code + " for stream " + streamId + "  " + clientUUID);
                     }
                     if (code == CommandId.CLOSE_STREAM.id) {
                         requestAccess.close(-streamId);
@@ -148,13 +148,13 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
                         try {
                             read = globBinReader.read(responseInfo.receiveType());
                         } catch (Exception e) {
-                            log.error("Error reading data " + serverAddress + " for type " + responseInfo.receiveType().getName()  + "  " + clientUUID, e);
+                            log.error("Error reading data " + serverAddress + " for type " + responseInfo.receiveType().getName() + "  " + clientUUID, e);
                             serializedInput.readToLimit();
                         }
                         if (read != null) {
                             try {
                                 if (log.isDebugEnabled()) {
-                                    log.debug("Data read " + serverAddress + ", propagate request " + requestId + " for stream " + streamId  + "  " + clientUUID);
+                                    log.debug("Data read " + serverAddress + ", propagate request " + requestId + " for stream " + streamId + "  " + clientUUID);
                                 }
                                 responseInfo.dataReceiver().receive(read);
                             } catch (Exception e) {
@@ -173,14 +173,41 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
             }
             clientShare.connectionLost(serverAddress);
             log.error("GlobClient read error", throwable);
-        }
-        finally {
+        } finally {
             clientShare.releaseDirectBuffer(readByteBuffer);
         }
     }
 
+    private void connectAndSendFirstAck() throws IOException {
+        if (!channel.isConnected()) {
+            log.debug("Not connected " + serverAddress + "  " + clientUUID);
+            readSelectionKey.interestOps(SelectionKey.OP_CONNECT);
+            while (!channel.isConnected()) {
+                final int select = readSelector.select();
+                if (select > 0) {
+                    readSelector.selectedKeys().clear();
+                    if (readSelectionKey.isConnectable()) {
+                        if (channel.finishConnect()){
+                            readSelectionKey.interestOps(SelectionKey.OP_READ);
+                        }
+                    }
+                }
+            }
+        }
+        Data data = clientShare.getFreeData();
+        data.incWriter();
+        data.serializedOutput.write(1);
+        data.serializedOutput.writeUtf8String(clientUUID);
+        data.complete(-1, -1);
+        pendingWrite.add(data);
+        setPendingWrite.set();
+
+        int maxReadWriteVersion = serializedInput.readNotNullInt();
+        clientShare.connectionOK(serverAddress, this);
+    }
+
     public boolean send(Data data) {
-        if (!channel.isConnected()){
+        if (!channel.isConnected()) {
             return false;
         }
         data.incWriter();
@@ -188,7 +215,7 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
             try {
                 data.byteBuffer.mark();
                 if (log.isDebugEnabled()) {
-                    log.debug("Send data to " +  serverAddress + " on stream " + data.streamId + " and request " + data.requestId  + "  " + clientUUID);
+                    log.debug("Send data to " + serverAddress + " on stream " + data.streamId + " and request " + data.requestId + "  " + clientUUID);
                 }
                 channel.write(data.byteBuffer);
             } catch (IOException e) {
