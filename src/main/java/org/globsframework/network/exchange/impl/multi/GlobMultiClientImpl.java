@@ -144,7 +144,7 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
 
     synchronized SetPendingWrite addPendingWrite(SocketChannel channel, PendingWrite pendingWrite) {
         try {
-            final SelectionKey selectionKey = channel.register(selector, SelectionKey.OP_WRITE, new PendingSelection(channel, pendingWrite));
+            final SelectionKey selectionKey = channel.register(selector, 0, new PendingSelection(channel, pendingWrite));
             return new SetPendingWriteForSelector(selectionKey);
         } catch (ClosedChannelException e) {
             throw new RuntimeException(e);
@@ -154,10 +154,11 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
     void flushPendingWrite() {
         try {
             while (!stop) {
-                final int select = selector.select();
+                final int select = selector.select(1000);
                 if (select != 0) {
                     final Set<SelectionKey> selectionKeys = selector.selectedKeys();
-                    for (SelectionKey selectionKey : selectionKeys) {
+                    for (Iterator<SelectionKey> iterator = selectionKeys.iterator(); iterator.hasNext(); ) {
+                        SelectionKey selectionKey = iterator.next();
                         if (selectionKey.isWritable()) {
                             final PendingSelection p = (PendingSelection) selectionKey.attachment();
                             PendingWrite.DataWithByteBuffer current = p.pendingWrite().getCurrent();
@@ -183,8 +184,8 @@ public class GlobMultiClientImpl implements GlobMultiClient, ClientShare, EndPoi
                                 }
                             }
                         }
+                        iterator.remove();
                     }
-                    selectionKeys.clear();
                 }
             }
         } catch (IOException e) {

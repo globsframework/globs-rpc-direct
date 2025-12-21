@@ -70,20 +70,23 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
         while (true) {
             try {
                 long start = System.nanoTime();
-                final int select = readSelector.select();
+                final int select = readSelector.select(1000);
                 if (log.isDebugEnabled()) {
                     final long micros = TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - start);
                     log.debug("refill unlock " + select + " " + ( micros > 10000 ? TimeUnit.MICROSECONDS.toMillis(micros) + "ms" :  micros + "us")  + "  " + clientUUID);
                 }
-                if (readSelectionKey.isReadable()) {
-                    readByteBuffer.clear();
-                    int read = channel.read(readByteBuffer);
-                    if (read == -1) {
-                        throw new RuntimeException("Connection closed");
-                    }
-                    readByteBuffer.flip();
-                    if (readByteBuffer.hasRemaining()) {
-                        return readByteBuffer;
+                if (select > 0) {
+                    readSelector.selectedKeys().clear();
+                    if (readSelectionKey.isReadable()) {
+                        readByteBuffer.clear();
+                        int read = channel.read(readByteBuffer);
+                        if (read == -1) {
+                            throw new RuntimeException("Connection closed");
+                        }
+                        readByteBuffer.flip();
+                        if (readByteBuffer.hasRemaining()) {
+                            return readByteBuffer;
+                        }
                     }
                 }
             } catch (IOException e) {

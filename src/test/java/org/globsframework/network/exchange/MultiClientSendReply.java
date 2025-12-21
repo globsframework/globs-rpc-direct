@@ -1,5 +1,6 @@
 package org.globsframework.network.exchange;
 
+import com.codahale.metrics.ExponentiallyDecayingReservoir;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.codahale.metrics.UniformReservoir;
@@ -83,7 +84,7 @@ public class MultiClientSendReply {
             final long micros = TimeUnit.NANOSECONDS.toMicros(endAt - startAt);
             histogram.update(micros);
             if (micros > 1000) {
-                log.warn("long delay of " + micros + "us at " + i);
+                log.warn("2 long delay of " + micros + " us at " + i);
             }
             if (i % 100 == 0) {
                 try {
@@ -127,7 +128,7 @@ public class MultiClientSendReply {
             if (sendData != null) {
                 final long micros = TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - glob.get(ExchangeData.sendAtNS));
                 if (micros > 1000) {
-                    log.warn("long delay of " + micros + " for " + glob.get(ExchangeData.id));
+                    log.warn("1 long delay of " + micros + " us for " + glob.get(ExchangeData.id));
                 }
                 sendData.complete(glob);
             }
