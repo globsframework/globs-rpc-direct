@@ -2,7 +2,6 @@ package org.globsframework.network.exchange.impl;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
-import org.globsframework.core.model.cache.DefaultGlobsCache;
 import org.globsframework.core.utils.serialization.BufferInputStreamWithLimit;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.DefaultSerializationInput;
@@ -26,7 +25,6 @@ import java.net.Socket;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -136,6 +134,7 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
                 final Socket socket = serverSocket.accept();
                 socket.setTcpNoDelay(true);
                 final int localPort = socket.getLocalPort();
+                log.debug("Accepted connection on port " + localPort);
                 MessageReader messageReader =
                         new MessageReader(socket, binReaderFactory, binWriterFactory, clients, reader -> {
                             synchronized (this) {
@@ -240,6 +239,9 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
                     bufferAccessor.release(responseData);
                 }
                 int version = serializationInput.readNotNullInt();
+                if (version != 1) {
+                    throw new RuntimeException("Unexpected version " + version);
+                }
                 String clientId = serializationInput.readUtf8String();
                 while (!shutdown) {
                     long startWait = System.nanoTime();

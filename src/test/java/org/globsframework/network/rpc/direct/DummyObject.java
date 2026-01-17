@@ -25,11 +25,10 @@ class DummyObject {
 
     static {
         final GlobTypeBuilder dummyObject = DefaultGlobTypeBuilder.init("DummyObject");
-        TYPE = dummyObject.unCompleteType();
         id = dummyObject.declareLongField("id", FieldNumber.create(1));
         name = dummyObject.declareStringField("name", FieldNumber.create(2));
         sendAt = dummyObject.declareLongField("sendAt", FieldNumber.create(3));
         receivedAt = dummyObject.declareLongField("receivedAt", FieldNumber.create(4));
-        dummyObject.complete();
+        TYPE = dummyObject.build();
     }
 }

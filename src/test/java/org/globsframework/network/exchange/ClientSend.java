@@ -90,10 +90,9 @@ public class ClientSend {
 
         static {
             final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("Option");
-            TYPE = typeBuilder.unCompleteType();
             host = typeBuilder.declareStringField("host");
             port = typeBuilder.declareIntegerField("port");
-            typeBuilder.complete();
+            TYPE = typeBuilder.build();
         }
     }
 }
