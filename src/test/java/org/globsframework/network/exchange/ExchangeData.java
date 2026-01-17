@@ -22,12 +22,11 @@ public class ExchangeData {
 
     static {
         final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("Exchange");
-        TYPE = typeBuilder.unCompleteType();
         groupId = typeBuilder.declareIntegerField("groupId", FieldNumber.create(4));
         id = typeBuilder.declareIntegerField("id", FieldNumber.create(1));
         DATA = typeBuilder.declareStringField("data", FieldNumber.create(2));
         sendAtNS = typeBuilder.declareLongField("updatedAt", FieldNumber.create(3));
-        typeBuilder.complete();
+        TYPE = typeBuilder.build();
     }
 
     public static Glob create(String data, int id, long createdAt) {

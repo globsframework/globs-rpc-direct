@@ -6,7 +6,7 @@
     <packaging>jar</packaging>
     <artifactId>globs-rpc-direct</artifactId>
     <name>Glob simple RPC call using blocking socket</name>
-    <version>4.16-SNAPSHOT</version>
+    <version>5.0-SNAPSHOT</version>
 
     <developers>
         <developer>
@@ -131,17 +131,17 @@
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs</artifactId>
-            <version>4.16.0</version>
+            <version>5.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs-bin-serialisation</artifactId>
-            <version>4.8.0</version>
+            <version>5.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs-commandline</artifactId>
-            <version>4.2.0</version>
+            <version>5.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>

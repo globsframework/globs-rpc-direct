@@ -40,9 +40,8 @@ public class Server {
 
         static {
             final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("Option");
-            TYPE = typeBuilder.unCompleteType();
             port = typeBuilder.declareIntegerField("port");
-            typeBuilder.complete();
+            TYPE = typeBuilder.build();
         }
     }
 

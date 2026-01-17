@@ -339,9 +339,8 @@ public class MultiClientTest {
 
         static {
             final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("UnexpectedType");
-            TYPE = typeBuilder.unCompleteType();
             id = typeBuilder.declareLongField("id", FieldNumber.create(1));
-            typeBuilder.complete();
+            TYPE = typeBuilder.build();
         }
     }
 

@@ -167,10 +167,9 @@ public class MultiClientSendReplyWithDisruptor {
 
         static {
             final GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create("Option");
-            TYPE = typeBuilder.unCompleteType();
             host = typeBuilder.declareStringArrayField("host");
             port = typeBuilder.declareStringArrayField("port");
-            typeBuilder.complete();
+            TYPE = typeBuilder.build();
         }
     }
 }
