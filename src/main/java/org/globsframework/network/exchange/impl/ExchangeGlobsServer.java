@@ -25,6 +25,7 @@ import java.net.Socket;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -40,7 +41,7 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
     private final Executor executorService;
     private final boolean closeExecutorService;
     private final boolean closeConnectionExecutorService;
-    private final Map<Integer, MessageReader> readers = new HashMap<>();
+    private final Map<String, MessageReader> readers = new ConcurrentHashMap<>();
     private final Deque<ResponseData> responseDataDeque = new ConcurrentLinkedDeque<>();
     private ServerSocket serverSocket;
     private boolean running;
@@ -121,6 +122,7 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
                 port = serverSocket.getLocalPort();
             }
             running = true;
+            log.info("Server initialized on port " + port);
             connectionExecutorService.execute(this::processConnections);
         } catch (IOException e) {
             final String msg = "Failed to initialize server";
@@ -134,23 +136,23 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
                 final Socket socket = serverSocket.accept();
                 socket.setTcpNoDelay(true);
                 final int localPort = socket.getLocalPort();
-                log.debug("Accepted connection on port " + localPort);
+                log.info("New connection on port " + localPort);
+                String uuid = UUID.randomUUID().toString();
                 MessageReader messageReader =
                         new MessageReader(socket, binReaderFactory, binWriterFactory, clients, reader -> {
-                            synchronized (this) {
-                                final MessageReader remove = readers.remove(localPort);
-                                if (remove != reader) {
-                                    log.error("Bug reader is not associated to port " + localPort);
-                                }
-                            }
+                            readers.remove(uuid);
                         }, this);
-                readers.put(localPort, messageReader);
+                readers.put(uuid, messageReader);
                 executorService.execute(messageReader::run);
             }
         } catch (IOException e) {
-            final String msg = "Error processing connections";
-            log.error(msg, e);
-            throw new RuntimeException(msg, e);
+            if (serverSocket.isClosed()) {
+                log.warn("Server socket to " + port + " is closed.");
+            } else {
+                final String msg = "Error processing connections";
+                log.error(msg, e);
+                throw new RuntimeException(msg, e);
+            }
         } finally {
             log.info("Closing server socket.");
         }
@@ -176,11 +178,10 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
         if (closeExecutorService) {
             ((ExecutorService) executorService).shutdown();
         }
-        synchronized (this) {
-            for (MessageReader reader : readers.values()) {
-                reader.shutdown();
-            }
+        for (MessageReader reader : readers.values()) {
+            reader.shutdown();
         }
+        readers.clear();
     }
 
     @Override
@@ -229,6 +230,7 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
         }
 
         void run() {
+            String clientId = "undef";
             try {
                 {
                     final ResponseData responseData = bufferAccessor.getResponseData();
@@ -242,7 +244,7 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
                 if (version != 1) {
                     throw new RuntimeException("Unexpected version " + version);
                 }
-                String clientId = serializationInput.readUtf8String();
+                clientId = serializationInput.readUtf8String();
                 while (!shutdown) {
                     long startWait = System.nanoTime();
                     final long streamId = serializationInput.readNotNullLong();
@@ -330,10 +332,14 @@ public class ExchangeGlobsServer implements GlobsServer, BufferAccessor {
                     }
                 }
             } catch (Throwable e) {
-                log.error("Leave connection", e);
-                try {
-                    socket.close();
-                } catch (IOException ex) {
+                if (socket.isClosed()) {
+                    log.warn("Socket to " + clientId + " is closed.");
+                } else {
+                    log.error("Leave connection", e);
+                    try {
+                        socket.close();
+                    } catch (IOException ex) {
+                    }
                 }
             } finally {
                 onClose.closed(this);

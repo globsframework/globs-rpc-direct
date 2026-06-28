@@ -99,12 +99,18 @@ public class AsyncSimpleClient implements AutoCloseable {
         long order = writeOrder.incrementAndGet();
         CompletableFuture<Glob> result = new CompletableFuture<>();
         requests.put(order, new ResponseInfo(result, resultType));
-        synchronized (binWriter) {
-            serializedOutput.write(order);
-            serializedOutput.writeUtf8String(path);
-            binWriter.write(data);
+        try {
+            synchronized (binWriter) {
+                serializedOutput.write(order);
+                serializedOutput.writeUtf8String(path);
+                binWriter.write(data);
+            }
+            bufferedOutputStream.flush(); //internally synchronized
+        } catch (IOException e) {
+            requests.remove(order);
+            result.completeExceptionally(e);
+            throw e;
         }
-        bufferedOutputStream.flush(); //internally synchronized
         return result;
     }
 

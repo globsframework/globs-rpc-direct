@@ -4,6 +4,7 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.model.Glob;
 import org.globsframework.network.rpc.direct.RpcGlobClient;
 
+import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -18,20 +19,25 @@ public class RpcGlobClientProxy implements RpcGlobClient {
     }
 
     public CompletableFuture<Glob> request(String path, Glob data, GlobType resultType) {
+        AsyncSimpleClient tmp = null;
         try {
             synchronized (this) {
-                if (simpleClient == null) {
-                    long connectStart = System.nanoTime();
-                    simpleClient = new AsyncSimpleClient(host, port);
-                    long connectComplete = System.nanoTime();
-                    System.out.println("GlobClientProxy.request " +
-                                       TimeUnit.NANOSECONDS.toMicros(connectComplete - connectStart) + " µs");
+                tmp = simpleClient;
+                if (tmp == null) {
+                    tmp = new AsyncSimpleClient(host, port);
+                    simpleClient = tmp;
                 }
             }
-            return simpleClient.request(path, data, resultType);
+            return tmp.request(path, data, resultType);
         } catch (Exception e) {
             synchronized (this) {
-                simpleClient = null;
+                if (tmp == simpleClient) {
+                    try {
+                        simpleClient.close();
+                    } catch (Exception ex) {
+                    }
+                    simpleClient = null;
+                }
             }
             throw new RuntimeException(e);
         }

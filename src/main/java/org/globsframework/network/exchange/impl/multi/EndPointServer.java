@@ -77,6 +77,7 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
                         readByteBuffer.clear();
                         int read = channel.read(readByteBuffer);
                         if (read == -1) {
+                            channel.close();
                             throw new RuntimeException("Connection closed");
                         }
                         readByteBuffer.flip();
@@ -93,7 +94,11 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
                     }
                 }
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                try {
+                    channel.close();
+                } catch (IOException ex) {
+                }
+                throw new RuntimeException("Connection closed ", e);
             }
         }
     }
@@ -167,8 +172,9 @@ public class EndPointServer implements SendData, NByteBufferSerializationInput.N
             }
             log.info("Shutting down " + serverAddress + "  " + clientUUID);
         } catch (Throwable throwable) {
-            if (shutdown) {
+            if (shutdown || channel.socket().isClosed()) {
                 log.info("Shutting down " + serverAddress + "  " + clientUUID);
+                clientShare.connectionLost(serverAddress);
                 return;
             }
             clientShare.connectionLost(serverAddress);

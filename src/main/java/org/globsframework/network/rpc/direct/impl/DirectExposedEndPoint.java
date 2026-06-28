@@ -17,8 +17,8 @@ import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,7 +38,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
     private volatile boolean running = false;
     private final Map<String, ReceivedWithType> receiver = new ConcurrentHashMap<>();
     private final BinReaderFactory binReaderFactory;
-    private final List<MessageReader> messageReaders = new ArrayList<>();
+    private final List<MessageReader> messageReaders = new CopyOnWriteArrayList<>();
 
     record ReceivedWithType(Receiver receiver, GlobType type) {
 
@@ -79,13 +79,20 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
                 final Socket socket = serverSocket.accept();
                 MessageReader messageReader =
                         new MessageReader(socket, binReaderFactory, binWriterFactory, receiver);
-                executorService.submit(messageReader::run);
                 messageReaders.add(messageReader);
+                executorService.submit(() -> {
+                    try {
+                        messageReader.run();
+                    } finally {
+                        messageReaders.remove(messageReader);
+                    }
+                });
             }
         } catch (IOException e) {
-            final String msg = "Error processing connections";
-            log.error(msg, e);
-            throw new RuntimeException(msg, e);
+            if (running) {
+                log.error("Error processing connections", e);
+                throw new RuntimeException("Error processing connections", e);
+            }
         } finally {
             log.info("Closing server socket.");
         }
@@ -93,9 +100,16 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
 
     public void shutdown() {
         running = false;
+        try {
+            serverSocket.close();
+        } catch (IOException e) {
+            log.error("Error closing server socket", e);
+        }
         for (MessageReader messageReader : messageReaders) {
             messageReader.shutdown();
         }
+        connectionExecutorService.shutdown();
+        executorService.shutdown();
     }
 
     static class MessageReader {
@@ -165,6 +179,7 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
             try {
                 socket.close();
             } catch (IOException e) {
+                log.error("Error closing socket on shutdown", e);
             }
         }
 
@@ -187,6 +202,9 @@ public class DirectExposedEndPoint implements ExposedEndPoint {
                             serializationOutput.write(order);
                             globBinWriter.write(((Glob) null));
                             serializationOutput.flush();
+                            if (receivedMessage != null) {
+                                globsCache.release(receivedMessage, callRequestId);
+                            }
                         } else {
                             serializationOutput.write(order);
                             globBinWriter.write(glob);
